@@ -159,7 +159,8 @@ export async function handleMainAPIRequest(systemPrompt, userPrompt, isSilent = 
             ordered_prompts: messages, // Pass the array directly
             should_stream: true,      // Re-enable streaming
         });
-        loadingToast.close();
+        loadingToast?.close();
+        loadingToast = null;
         return suspended ? 'suspended' : response;
         // --- End: Processing for array input ---
 
@@ -188,7 +189,8 @@ export async function handleMainAPIRequest(systemPrompt, userPrompt, isSilent = 
             systemPrompt: finalSystemPrompt,
             trimNames: false,
         });
-        loadingToast.close();
+        loadingToast?.close();
+        loadingToast = null;
         return suspended ? 'suspended' : response;
         // --- End: Original logic ---
     }
