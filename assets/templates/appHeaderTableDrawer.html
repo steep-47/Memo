@@ -3,6 +3,11 @@
         <div id="table_drawer_icon" class="drawer-icon fa-solid fa-bars-progress fa-fw closedIcon interactable" title="增强记忆表格" data-i18n="[title]Event table" tabindex="0"></div>
     </div>
     <div id="table_drawer_content" class="drawer-content closedDrawer">
+        <!-- 数据控制区折叠按钮：始终固定在插件面板右上角 -->
+        <button id="table_controls_collapse_button" class="menu_button interactable" type="button" title="折叠控制区" aria-expanded="true">
+            <i class="fa-solid fa-chevron-up"></i>
+        </button>
+
         <!-- 切换界面按钮：数据紧邻设置并整体右对齐 -->
         <div id="table_button_container" class="wide100p flex-container" style="display: flex; flex-grow: 1; justify-content: flex-end;">
             <div style="display: flex; gap: 5px; align-items: center;">
@@ -19,8 +24,48 @@
 </div>
 
 <style>
+    #table_drawer_content {
+        position: relative;
+    }
+
+    #table_controls_collapse_button {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 20;
+        min-width: 30px;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* 给右上角箭头留位置，避免和“设置”按钮重叠。 */
+    #table_button_container {
+        padding-right: 38px;
+        box-sizing: border-box;
+    }
+
     #app_header_table_container {
         overflow-y: auto;
         flex-grow: 1;
+    }
+
+    /* 折叠时：从“数据/设置”到“跳转”全部收起，六张表保持显示。 */
+    #table_drawer_content.table-controls-collapsed #table_button_container,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips + hr,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips + hr + div,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips + hr + div + hr,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #table_history_nav,
+    #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #table_history_nav + hr {
+        display: none !important;
+    }
+
+    #table_drawer_content.table-controls-collapsed #table_controls_collapse_button {
+        top: 8px;
+        right: 8px;
     }
 </style>
