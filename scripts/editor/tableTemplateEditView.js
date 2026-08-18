@@ -56,7 +56,7 @@ const formConfigs = {
     },
     sheetConfig: {
         formTitle: "编辑表格属性",
-        formDescription: "设置表格的域、类型和名称。",
+        formDescription: "设置表格名称与记忆提示。",
         fields: [
             /* {
                 label: '默认保存位置', type: 'select', dataKey: 'domain',
@@ -66,20 +66,8 @@ const formConfigs = {
                     { value: 'chat', text: `<i class="fa-solid fa-comment"></i> Chat（该模板储存于当前对话）` },
                 ],
             }, */
-            {
-                label: '类型', type: 'select', dataKey: 'type',
-                options: [
-                    // { value: 'free', text: `<i class="fa-solid fa-table"></i> Free（AI 可以任意修改此表格）` },
-                    { value: 'dynamic', text: `<i class="fa-solid fa-arrow-down-wide-short"></i> Dynamic（AI 可进行插入列外的所有操作）` },
-                    // { value: 'fixed', text: `<i class="fa-solid fa-thumbtack"></i> Fixed（AI 无法删除或插入行与列）` },
-                    // { value: 'static', text: `<i class="fa-solid fa-link"></i> Static（该表对 AI 为只读）` }
-                ],
-            },
             { label: '表格名', type: 'text', dataKey: 'name' },
             { label: '表格说明（提示词）', type: 'textarea', rows: 6, dataKey: 'note', description: '(作为该表总体提示词，给AI解释此表格的作用)' },
-            { label: '是否必填', type: 'checkbox', dataKey: 'required' },
-            { label: '是否触发发送', type: 'checkbox', dataKey: 'triggerSend', },
-            { label: '触发发送深度', type: 'number', dataKey: 'triggerSendDeep' },
             { label: '初始化提示词', type: 'textarea', rows: 4, dataKey: 'initNode', description: '（当该表格为必填，且表格为空时，会发送此提示词催促AI填表）' },
             { label: '插入提示词', type: 'textarea', rows: 4, dataKey: 'insertNode', description: '' },
             { label: '删除提示词', type: 'textarea', rows: 4, dataKey: 'deleteNode', description: '' },
@@ -255,11 +243,6 @@ function bindSheetSetting(sheet, index) {
         }
     });
 
-    // 表格自定义样式按钮
-    const styleButton = $(`<i class="menu_button menu_button_icon fa-solid fa-wand-magic-sparkles" style="cursor: pointer; height: 28px; width: 28px;" title="编辑表格显示样式"></i>`);
-    styleButton.on('click', async () => {
-        await openSheetStyleRendererPopup(sheet);
-    })
     const nameSpan = $(`<span style="margin-left: 0px;">#${index} ${sheet.name ? sheet.name : 'Unnamed Table'}</span>`);
 
     // 新增：发送到上下文的复选框
@@ -278,7 +261,6 @@ function bindSheetSetting(sheet, index) {
 
     titleBar.appendChild(settingButton[0]);
     // titleBar.appendChild(originButton[0]);
-    titleBar.appendChild(styleButton[0]);
     titleBar.appendChild(nameSpan[0]);
     titleBar.appendChild(sendToContextCheckbox[0]);
 
