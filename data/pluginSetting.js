@@ -43,7 +43,10 @@ export const defaultSettings = await switchLanguage('__defaultSettings__', {
     additionalPrompt: '',
     step_by_step: false,
     step_by_step_use_main_api: true,
-    step_by_step_user_prompt: `<聊天记录>\n$1\n</聊天记录>\n<操作规则>\n$3\n</操作规则>`,
+    step_by_step_user_prompt: `[
+  {"role":"system","content":"你是世界状态记忆表格整理助手。只根据已确认事实维护现有六张表；已有同一对象优先更新，不重复新建，不猜测未知。只输出<tableEdit><!-- 函数调用 --></tableEdit>。"},
+  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮AI回复>\\n$2\\n</本轮AI回复>"}
+]`,
     bool_silent_refresh: false,
     separateReadContextLayers: 1,
     separateReadLorebook: false,
