@@ -6,7 +6,6 @@ let _translations = undefined;
 const WORLD_MEMORY_PROMPT = `# dataTable 世界状态记忆
 ## 用途
 - 以下表格保存当前世界状态与重要长期记忆，是生成下文的重要参考。
-- 每次回复正文完成后，必须检查六张表是否因本轮剧情产生了可确认的变化。
 - 表名格式：[tableIndex:表名]；列名格式：[colIndex:列名]；行号格式：[rowIndex]。
 
 {{tableData}}
@@ -30,22 +29,26 @@ updateRow(tableIndex:number, rowIndex:number, data:{[colIndex:number]:string|num
 - 5 历史事件表：只记录会影响后续的重要既成事件；只在确有重大新事件时 insertRow，普通日常不记录。
 
 # 重要原则
-- 每轮都必须逐表检查 0→1→2→3→4→5，不能因为已有数据就停止更新。
+- 每次独立填表都逐表检查 0→1→2→3→4→5。
 - 已有同一对象时优先 updateRow，禁止重复 insert。
 - 只记录已确认事实；不知道的内容留空，不猜测、不补设定、不回滚既成事实。
 - 单元格并列内容使用 / 分隔，避免逗号。
-- 只有完全没有任何表格变化时，才可以不输出<tableEdit>。
+- 如果确实没有任何变化，只输出空的<tableEdit><!-- --></tableEdit>。
 
 # 输出格式示例
 <tableEdit>
 <!--
-insertRow(0, {0:"苍玄历12500年03月16日", 1:"14:20", 2:"青石城>悦来客栈", 3:"林川/赵岳"})
-insertRow(1, {0:"林川", 1:"人族", 2:"23", 3:"炼气七层", 4:"火灵根", 5:"72/100", 6:"正常", 7:"左臂轻伤", 8:"下品36", 9:"铜钱120文", 10:"火弹术", 11:"近身剑斗", 12:""})
-insertRow(2, {0:"回气丹", 1:"丹药", 2:"3", 3:"下品", 4:"恢复灵力"})
-updateRow(1, 0, {5:"60/100", 8:"下品35"})
-insertRow(4, {0:"赵岳", 1:"青云门外门弟子", 2:"炼气八层", 3:"右眉有疤", 4:"好强/记仇", 5:"敌对", 6:"右肩受伤", 7:"与林川在悦来客栈冲突"})
+updateRow(0, 0, {1:"08:20", 2:"清河镇>街尾"})
+updateRow(1, 0, {9:"铜钱82文"})
+insertRow(2, {0:"馒头", 1:"食物", 2:"2", 3:"普通", 4:"可食用"})
+insertRow(4, {0:"张三", 1:"散修", 2:"炼气三层", 3:"青衣", 4:"谨慎", 5:"陌生", 6:"正在清河镇", 7:"与陈尘首次见面"})
 -->
 </tableEdit>`;
+
+const STEP_BY_STEP_PROMPT = `[
+  { role: 'system', content: '你是世界状态记忆维护器。只维护表格，不输出正文。必须依据已确认事实，禁止猜测。' },
+  { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n请逐表检查0到5。已有对象优先updateRow；新对象才insertRow；失效事项按规则deleteRow。只输出<tableEdit><!-- 函数调用 --></tableEdit>。若无变化输出<tableEdit><!-- --></tableEdit>。' }
+]`;
 
 function forceWorldMemoryWriteProtocol() {
     try {
@@ -58,23 +61,26 @@ function forceWorldMemoryWriteProtocol() {
         table.isAiReadTable = true;
         table.isAiWriteTable = true;
 
-        // 使用原插件最稳定的“正文内直接生成 tableEdit，再由 CHARACTER_MESSAGE_RENDERED 解析”的链路。
-        // 不使用独立填表 API，避免本地旧设置把更新送到另一条链路。
-        table.step_by_step = false;
+        // 正文只负责剧情，回复完成后由独立填表链专门维护六张表。
+        table.step_by_step = true;
+        table.step_by_step_use_main_api = true;
+        table.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
+        table.bool_silent_refresh = true;
+        table.separateReadContextLayers = 2;
+        table.separateReadLorebook = false;
         table.injection_mode = 'deep_system';
         table.deep = 1;
-        table.updateIndex = Math.max(Number(table.updateIndex || 0), 8);
+        table.updateIndex = Math.max(Number(table.updateIndex || 0), 9);
 
         applicationFunctionManager.saveSettingsDebounced?.();
-        console.log('[World Memory][diag] write protocol synced', {
+        console.log('[World Memory][diag] independent table update enabled', {
             enabled: table.isExtensionAble,
             read: table.isAiReadTable,
             write: table.isAiWriteTable,
             step_by_step: table.step_by_step,
-            injection_mode: table.injection_mode,
-            deep: table.deep,
+            use_main_api: table.step_by_step_use_main_api,
+            context_layers: table.separateReadContextLayers,
             updateIndex: table.updateIndex,
-            promptLength: table.message_template?.length || 0,
         });
     } catch (error) {
         console.warn('[World Memory][diag] protocol sync failed:', error);
