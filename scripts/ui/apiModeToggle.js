@@ -32,8 +32,15 @@ function applyMode(enabled, { save = true } = {}) {
     if (save) {
         persistPreference(value);
     } else if (USER?.tableBaseSetting) {
-        // 运行时同步给原插件实际使用的分支变量，但不改变独立偏好。
         USER.tableBaseSetting.step_by_step = value;
+    }
+
+    if (USER?.tableBaseSetting) {
+        USER.tableBaseSetting.isAiReadTable = true;
+        USER.tableBaseSetting.isAiWriteTable = true;
+        // 单API由 singleApiRuntime 直接注入，关闭原插件旧注入；独立API恢复原插件只读表格注入。
+        USER.tableBaseSetting.injection_mode = value ? 'deep_system' : 'injection_off';
+        USER.tableBaseSetting.deep = 0;
     }
 
     const fillTime = document.querySelector('#fill_table_time');
@@ -90,7 +97,6 @@ function mountToggle() {
         else host.insertBefore(toggle, host.firstChild);
     }
 
-    // 新配置项不存在时 getEnabled() 直接返回 false，因此首次必定默认关闭。
     applyMode(getEnabled(), { save: false });
     return true;
 }
@@ -104,11 +110,10 @@ function start() {
         setTimeout(() => observer.disconnect(), 10000);
     }
 
-    // 原插件 renderSetting 可能稍后覆盖 DOM 显示；这里只按独立偏好重新同步 UI。
-    [0, 50, 200, 500, 1000].forEach(delay => {
+    [0, 50, 200, 500, 1000, 2000].forEach(delay => {
         setTimeout(() => applyMode(getEnabled(), { save: false }), delay);
     });
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载（独立配置，首次默认关闭）');
+console.log('[Memo] 独立记录 API 开关已加载：单API/独立API使用互斥注入路径');
