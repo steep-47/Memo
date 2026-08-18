@@ -1,22 +1,43 @@
 import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
+const DEFAULT_MIGRATION_KEY = 'memo-independent-record-api-default-v2';
 
-function applyMode(enabled) {
+function applyMode(enabled, { save = true } = {}) {
     if (!USER?.tableBaseSetting) return;
 
     USER.tableBaseSetting.step_by_step = !!enabled;
 
-    // 同步原插件的隐藏运行策略控件，保证现有逻辑只走一条分支。
+    // 同步原插件的运行策略值；主逻辑仍只读取 step_by_step 分支。
     const fillTime = document.querySelector('#fill_table_time');
     if (fillTime) fillTime.value = enabled ? 'after' : 'chat';
 
     const replyOptions = document.querySelector('#reply_options');
     const stepOptions = document.querySelector('#step_by_step_options');
-    if (replyOptions) replyOptions.style.display = enabled ? 'none' : '';
-    if (stepOptions) stepOptions.style.display = enabled ? '' : 'none';
 
-    USER.saveSettings?.();
+    // 单 API 模式仍要保留 step_by_step_options 容器，因为“模板”折叠区挂在这里。
+    // 只隐藏独立记录专属控件，不再把整个容器 display:none。
+    if (replyOptions) replyOptions.style.display = enabled ? 'none' : '';
+    if (stepOptions) {
+        stepOptions.style.display = '';
+        stepOptions.classList.toggle('memory-independent-record-off', !enabled);
+    }
+
+    if (save) USER.saveSettings?.();
+}
+
+function ensureDefaultOffOnce() {
+    // 这次升级前，旧的已保存 step_by_step=true 会让新开关首次显示为开启。
+    // 仅迁移一次：首次加载新版时强制默认关闭；之后完全尊重用户自己的开关选择。
+    try {
+        if (localStorage.getItem(DEFAULT_MIGRATION_KEY) === '1') return;
+        if (USER?.tableBaseSetting) USER.tableBaseSetting.step_by_step = false;
+        localStorage.setItem(DEFAULT_MIGRATION_KEY, '1');
+        USER.saveSettings?.();
+    } catch (error) {
+        // localStorage 不可用时仍以单 API 为安全默认，不影响插件继续运行。
+        if (USER?.tableBaseSetting) USER.tableBaseSetting.step_by_step = false;
+    }
 }
 
 function createToggle() {
@@ -50,17 +71,17 @@ function mountToggle() {
     const host = fillTime.parentElement;
     if (!host) return false;
 
-    // 放在原“填表行为发生在”位置前；原下拉框仍由现有 CSS 隐藏。
+    ensureDefaultOffOnce();
+
     const toggle = createToggle();
     const runTitle = Array.from(host.querySelectorAll('h4')).find(el =>
         String(el.textContent || '').includes('运行策略')
     );
 
-    if (runTitle?.nextSibling) runTitle.after(toggle);
+    if (runTitle) runTitle.after(toggle);
     else host.insertBefore(toggle, host.firstChild);
 
-    // 页面首次挂载只同步显示，不改变用户已保存模式。
-    applyMode(USER?.tableBaseSetting?.step_by_step === true);
+    applyMode(USER?.tableBaseSetting?.step_by_step === true, { save: false });
     return true;
 }
 
@@ -71,9 +92,8 @@ function start() {
         if (mountToggle()) observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
-
     setTimeout(() => observer.disconnect(), 10000);
 }
 
 start();
-console.log('[世界状态记忆表格] 独立记录 API 开关已加载');
+console.log('[世界状态记忆表格] 独立记录 API 开关已加载（默认关闭，模板常驻）');
