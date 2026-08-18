@@ -78,10 +78,30 @@ function endDrag(event) {
     event.stopPropagation();
 }
 
+function ensurePanel() {
+    // SillyTavern 会重绘/替换扩展面板。不能只依赖模块内 initialized 状态，
+    // 每次打开目录前都确认实际 DOM 仍然存在。
+    const existing = document.getElementById('table_directory_panel');
+    if (existing) {
+        panelElement = existing;
+        searchInput = existing.querySelector('#table_directory_search');
+        resultContainer = existing.querySelector('#table_directory_results');
+        return existing;
+    }
+    createPanel();
+    return panelElement;
+}
+
 function togglePanel(event) {
+    event?.preventDefault();
     event?.stopPropagation();
-    panelElement?.classList.toggle('open');
-    if (panelElement?.classList.contains('open')) {
+    const panel = ensurePanel();
+    if (!panel) {
+        console.warn('[World Memory][directory] 目录面板创建失败');
+        return;
+    }
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
         refreshTableDirectory();
     }
 }
@@ -95,7 +115,15 @@ function highlightElement(element) {
 }
 
 function jumpToResult(result) {
-    const target = result.cell ? document.querySelector(`#tableContainer [data-cell-uid="${result.cell?.dataset.cellUid}"]`) : document.querySelector(`#tableContainer [data-table-directory-sheet-title="${result.sheetUid}"]`);
+    const cellUid = result.cell?.dataset?.cellUid;
+    const target = cellUid
+        ? document.querySelector(`#tableContainer [data-cell-uid="${CSS.escape(cellUid)}"]`)
+        : document.querySelector(`#tableContainer [data-table-directory-sheet-title="${CSS.escape(String(result.sheetUid || ''))}"]`);
+    if (!target) {
+        console.warn('[World Memory][directory] 未找到跳转目标:', result);
+        refreshTableDirectory();
+        return;
+    }
     target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
     highlightElement(target);
 }
@@ -285,9 +313,10 @@ function createPanel() {
 }
 
 export function initTableDirectoryControls() {
-    if (initialized) return;
-    initialized = true;
-
-    createPanel();
-    $(document).on('click', '#table_directory_button', togglePanel);
+    // 使用命名空间重新绑定，兼容插件热重载/抽屉重新创建，且不会重复绑定。
+    if (!initialized) initialized = true;
+    $(document)
+        .off('click.memoTableDirectory', '#table_directory_button')
+        .on('click.memoTableDirectory', '#table_directory_button', togglePanel);
+    ensurePanel();
 }
