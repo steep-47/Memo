@@ -92,7 +92,8 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     display: none !important;
 }
 
-#contentContainer.memory-table-pinch-area .memory-role-status-two-tables {
+#contentContainer.memory-table-pinch-area .memory-role-status-two-tables,
+#contentContainer.memory-table-pinch-area .memory-person-two-tables {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -100,10 +101,22 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     margin: 2px 0 8px;
 }
 
-#contentContainer.memory-table-pinch-area .memory-role-status-half-table {
+#contentContainer.memory-table-pinch-area .memory-role-status-half-table,
+#contentContainer.memory-table-pinch-area .memory-person-half-table {
     width: auto !important;
     max-width: none !important;
     margin: 0 !important;
+}
+
+/* #4 人物表：原始 9 列表作为数据源；界面按更新语义拆成 A/B 两张短表。 */
+#contentContainer.memory-table-pinch-area .memory-person-source {
+    display: none !important;
+}
+
+#contentContainer.memory-table-pinch-area .memory-person-half {
+    width: auto;
+    max-width: none;
+    margin: 0;
 }
 
 #contentContainer.memory-table-pinch-area *::-webkit-scrollbar {
