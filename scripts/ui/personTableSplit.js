@@ -53,6 +53,11 @@ function cloneColumns(source, descriptors, indexColumn = -1, label = '', headerR
     wrapper.className = 'memory-person-half';
     wrapper.dataset.group = label;
 
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'memory-person-group-label';
+    groupLabel.textContent = label === 'A' ? 'A（覆盖）' : 'B（合并）';
+    wrapper.appendChild(groupLabel);
+
     const table = source.cloneNode(false);
     table.removeAttribute('id');
     table.classList.remove('memory-person-source');
