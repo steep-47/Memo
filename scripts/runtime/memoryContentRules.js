@@ -4,6 +4,10 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 const RULE_MARK = '[角色身份归一规则]';
 const PLAYER_COLUMNS = ['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
 const PERSON_COLUMNS = ['姓名','别名/称呼','性别','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
+const STEP_BY_STEP_PROMPT = `[
+  {"role":"system","content":"你是世界状态记忆表格整理助手。只根据已确认事实维护现有六张表；已有同一对象优先更新，不重复新建，不猜测未知。只输出<tableEdit><!-- 函数调用 --></tableEdit>。"},
+  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮AI回复>\\n$2\\n</本轮AI回复>"}
+]`;
 
 const compactRules = `\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC；NPC一律进入表4“人物表”。\n- 表4“人物表”仅记录NPC，禁止把<user>/玩家本人写入人物表。\n- 性别只记录剧情已明确确认的信息；未明确时留空，不根据姓名、外貌或称呼猜测。\n- 角色状态/人物记录必须先判断是否为同一人物；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC首次只有描述性称呼时可暂作姓名；正式名字出现后替换临时姓名。真实昵称、外号、道号、稳定职衔写入“别名/称呼”。\n- 身份证据不足时不要强行合并；确认同一人物后只保留一条主记录。\n- 所有属性统一使用“神识”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写占位词，也不得猜测。\n`;
 
@@ -44,11 +48,13 @@ function fixPersonSchema(settings) {
 function patchSettings(settings) {
     if (!settings || typeof settings !== 'object') return;
 
-    // 默认单 API：主回复同时生成正文与 <tableEdit>。
-    // 用户可通过“独立记录API”开关把 step_by_step 切为 true；开启后每轮正文后再发起一次独立记录请求。
     if (typeof settings.step_by_step !== 'boolean') settings.step_by_step = false;
     settings.isAiReadTable = true;
     settings.isAiWriteTable = true;
+
+    // 独立记录执行器要求 JSON/JSON5 消息数组；旧的普通文本模板无法执行，自动迁移为当前可用默认结构。
+    const stepPrompt = String(settings.step_by_step_user_prompt || '').trim();
+    if (!stepPrompt.startsWith('[')) settings.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
 
     fixPlayerSchema(settings);
     fixPersonSchema(settings);
@@ -123,7 +129,7 @@ function migrateLegacySheets() {
             BASE.refreshContextView?.();
         }
     } catch (error) {
-        console.warn('[世界状态记忆表格] 性别字段迁移失败，已停止迁移以保护原数据', error);
+        console.warn('[Memo] 性别/别名字段迁移失败，已停止迁移以保护原数据', error);
     }
 }
 
@@ -137,4 +143,4 @@ setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[世界状态记忆表格] 单/独立API可切换、玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');
+console.log('[Memo] 单/独立API、玩家/NPC职责、性别、身份归一、空值、神识与独立提示模板规则已加载');
