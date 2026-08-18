@@ -15,9 +15,9 @@ function InitChatForTableTwoStepSummary(chat) {
 function getSwipeUid(chat) {
     InitChatForTableTwoStepSummary(chat);
     const swipeUid = `${chat.uid}_${chat.swipe_id}`;
-    if (!(swipeUid in chat.two_step_links)) chat.two_step_links[chatSwipeUid] = [];
-    if (!(swipeUid in chat.two_step_waiting)) chat.two_step_waiting[chatSwipeUid] = true;
-    return chatSwipeUid;
+    if (!(swipeUid in chat.two_step_links)) chat.two_step_links[swipeUid] = [];
+    if (!(swipeUid in chat.two_step_waiting)) chat.two_step_waiting[swipeUid] = true;
+    return swipeUid;
 }
 
 function checkIfChatIsExecuted(chat, targetSwipeUid) {
