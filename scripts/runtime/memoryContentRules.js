@@ -43,6 +43,13 @@ function fixPersonSchema(settings) {
 
 function patchSettings(settings) {
     if (!settings || typeof settings !== 'object') return;
+
+    // 单 API 模式：主回复同时生成正文与 <tableEdit>，禁止每轮再发起独立填表请求。
+    // 手动“更新记忆”仍可显式调用 TableTwoStepSummary("manual") 作为漏记兜底。
+    settings.step_by_step = false;
+    settings.isAiReadTable = true;
+    settings.isAiWriteTable = true;
+
     fixPlayerSchema(settings);
     fixPersonSchema(settings);
     if ('message_template' in settings) settings.message_template = appendOnce(settings.message_template);
@@ -133,4 +140,4 @@ setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[世界状态记忆表格] 玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');
+console.log('[世界状态记忆表格] 单API写表模式、玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');
