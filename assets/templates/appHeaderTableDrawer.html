@@ -3,59 +3,38 @@
         <div id="table_drawer_icon" class="drawer-icon fa-solid fa-bars-progress fa-fw closedIcon interactable" title="增强记忆表格" data-i18n="[title]Event table" tabindex="0"></div>
     </div>
     <div id="table_drawer_content" class="drawer-content closedDrawer">
-        <div id="table_controls_header" style="position: relative; width: 100%;">
-            <!-- 切换界面按钮：数据紧邻设置并整体右对齐 -->
-            <div id="table_button_container" class="wide100p flex-container" style="display: flex; flex-grow: 1; justify-content: flex-end;">
-                <div style="display: flex; gap: 5px; align-items: center;">
-                    <button id="database_button" class="menu_button_icon menu_button interactable"><i class="fa-solid fa-database"></i><b data-i18n="Data">数据</b></button>
-                    <button id="setting_button" class="menu_button_icon menu_button interactable" style="position: relative;">
-                        <i class="fa-solid fa-gears"></i>
-                        <b data-i18n="Settings">设置</b>
-                        <span id="setting_button_new_tag" class="new-version-tag" style="display: none; position: absolute; top: -5px; right: -5px; background: #ff4444; color: white; font-size: 10px; padding: 2px 4px; border-radius: 8px; font-weight: bold;">New</span>
-                    </button>
-                </div>
-            </div>
-            <!-- 只折叠数据控制区，不再改变整个 drawer 的定位/尺寸。 -->
-            <button id="table_controls_collapse_button" class="menu_button interactable" type="button" title="折叠控制区" aria-expanded="true">
+        <!-- 折叠箭头使用普通流布局，避免改变 SillyTavern drawer 的定位计算。 -->
+        <div id="table_controls_toggle_row" class="wide100p" style="display:flex; justify-content:flex-end; box-sizing:border-box; padding:4px 8px 0;">
+            <button id="table_controls_collapse_button" class="menu_button interactable" type="button" title="折叠控制区" aria-expanded="true" style="min-width:30px;width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;">
                 <i class="fa-solid fa-chevron-up"></i>
             </button>
         </div>
-        <div id="app_header_table_container" style="max-height: 100%; overflow-y: auto; flex-grow: 1;"></div>
+
+        <!-- 切换界面按钮：数据紧邻设置并整体右对齐 -->
+        <div id="table_button_container" class="wide100p flex-container" style="display:flex; flex-grow:1; justify-content:flex-end; box-sizing:border-box;">
+            <div style="display:flex; gap:5px; align-items:center;">
+                <button id="database_button" class="menu_button_icon menu_button interactable"><i class="fa-solid fa-database"></i><b data-i18n="Data">数据</b></button>
+                <button id="setting_button" class="menu_button_icon menu_button interactable" style="position:relative;">
+                    <i class="fa-solid fa-gears"></i>
+                    <b data-i18n="Settings">设置</b>
+                    <span id="setting_button_new_tag" class="new-version-tag" style="display:none; position:absolute; top:-5px; right:-5px; background:#ff4444; color:white; font-size:10px; padding:2px 4px; border-radius:8px; font-weight:bold;">New</span>
+                </button>
+            </div>
+        </div>
+        <div id="app_header_table_container" style="width:100%; max-height:100%; overflow-y:auto; flex-grow:1; box-sizing:border-box;"></div>
     </div>
 </div>
 
 <style>
-    #table_controls_header {
-        position: relative;
-        width: 100%;
+    #app_header_table_container,
+    #database-content,
+    #setting-content,
+    #table_manager_container {
+        width: 100% !important;
         box-sizing: border-box;
     }
 
-    #table_controls_collapse_button {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        z-index: 20;
-        min-width: 30px;
-        width: 30px;
-        height: 30px;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    #table_button_container {
-        padding-right: 38px;
-        box-sizing: border-box;
-    }
-
-    #app_header_table_container {
-        overflow-y: auto;
-        flex-grow: 1;
-    }
-
-    /* 折叠时只隐藏“数据/设置 → 跳转”控制项；表格区域本身完全不改定位。 */
+    /* 折叠时只隐藏“数据/设置 → 跳转”控制项；不修改任何父容器定位、transform 或宽度。 */
     #table_drawer_content.table-controls-collapsed #table_button_container,
     #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips,
     #table_drawer_content.table-controls-collapsed #database-content #table_manager_container > #tableEditTips + hr,
@@ -66,9 +45,12 @@
         display: none !important;
     }
 
-    /* 折叠后保留一条独立的小顶栏放展开箭头。 */
-    #table_drawer_content.table-controls-collapsed #table_controls_header {
-        height: 38px;
-        min-height: 38px;
+    @media screen and (max-width: 768px) {
+        /* 手机端明确锁定插件抽屉到视口宽度，避免折叠后按内容宽度收缩到右侧。 */
+        #table_drawer_content {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            box-sizing: border-box !important;
+        }
     }
 </style>
