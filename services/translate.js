@@ -22,37 +22,30 @@ updateRow(tableIndex:number, rowIndex:number, data:{[colIndex:number]:string|num
 </OperateRule>
 
 # 六表类型与规则
-- 0 当前状态表【快照型】：只保留一行当前快照。日期/时间/地点/当前场景人物变化时 updateRow；空表时才 insertRow。禁止为过去场景追加行。
-- 1 角色状态表【快照型】：只保留一行。修为/灵力/神识/身体状态/灵石/钱财/技能术法/擅长等当前值发生变化时 updateRow；新值覆盖旧值，不保存数值流水。未知项保持原值或留空，禁止猜测。
-- 2 背包表【库存型】：核心是“当前持有量”，不是日志。同名且同类型、同状态/品质的物品视为同一库存项；再次获得时优先把数量相加后 updateRow，例如2根+2根→4根。不同品质/状态或单位不一致时不要强行合并。消耗时数量相减并 updateRow；数量归0、明确丢失/送出/耗尽时 deleteRow。新库存项才 insertRow。
-- 3 当前任务与约定表【生命周期型】：只保存尚未结束事项。新任务/约定 insertRow；同一事项进度/期限变化 updateRow；一旦完成/失败/取消/失效，直接 deleteRow，不要继续保留“已完成”状态。重大结果可另记历史。
-- 4 人物表【实体档案型】：同一人物原则上一行。人物表包含“姓名”和“别名/称呼”；昵称、外号、职位称呼、未确认姓名时的描述性称呼都可能指向已有角色。新增人物前必须综合检查姓名、别名/称呼、身份/所属、外貌特征、与玩家关系、重要信息及最近事件链；若明显是同一实体，就 update 原行并把新称呼补入“别名/称呼”，绝不能因为称呼变化而新建一行。确认正式姓名后，将正式姓名写入“姓名”，旧称呼保留在“别名/称呼”。只有确认不是已有角色时才 insertRow。当前状态只写具有持续意义的状态，如同行/受伤/失踪/被俘/已离开/下落不明；不要把站在某门口、某店内等一次性位置长期保存。普通路人不要记录。
-- 5 历史事件表【事件归档型】：只记录会影响后续的重要既成节点，不做剧情流水账。同一事件链中的连续过程优先 update 已有历史行的事件/结果，只有出现新的重大不可逆节点时才 insertRow。普通见面、问话、短暂对峙、赶路、购物等不要单独成历史。
+- 0 当前状态表【快照型】：只保留一行当前快照。
+- 1 角色状态表【快照型】：只保留一行；当前值覆盖旧值，未知不猜测。
+- 2 背包表【库存型】：同名同类型同品质库存合并数量；消耗相减；归0删除。
+- 3 当前任务与约定表【生命周期型】：只保存未结束事项；完成/失败/取消/失效删除。
+- 4 人物表【实体档案型】：同一人物一行；姓名、别名/称呼、身份、外貌、关系和事件链共同识别实体，称呼变化不等于新人物。
+- 5 历史事件表【事件归档型】：只保留影响后续的重要既成节点，同一事件链优先压缩。
 
 # 通用判断原则
-- 先判断“这张表是什么类型”，再决定 insert/update/delete；禁止把所有表都按追加或简单去重处理。
-- 每次独立填表都逐表检查 0→1→2→3→4→5。
-- 增加任何新行之前，必须先检查该表是否已有同一对象/同一事项/同一事件链；能 update 或合并就不要 insert。
-- 人物实体识别不能只比较“姓名字符串”；别名、外号、称呼变化不等于新角色。
-- “当前”类表只表达现在；“库存”类表表达当前数量；“实体”类表维护同一对象；“历史”类表只保留关键结果。
-- 只记录已确认事实；不知道的内容留空，不猜测、不补设定、不回滚既成事实。
-- 单元格并列内容使用 / 分隔，避免逗号。
-- 如果确实没有任何变化，只输出空的<tableEdit><!-- --></tableEdit>。
-
-# 输出格式示例
-<tableEdit>
-<!--
-updateRow(0, 0, {1:"08:20", 2:"清河镇>街尾"})
-updateRow(1, 0, {9:"铜钱82文"})
-updateRow(2, 3, {2:"4根"})
-deleteRow(3, 0)
-updateRow(4, 0, {0:"沈清荷", 1:"沈家女子/阿荷/二房少奶奶", 7:"已离开", 8:"与陈尘发生过重要交集"})
--->
-</tableEdit>`;
+- 先判断表格类型，再决定 insert/update/delete。
+- 新增前先检查已有对象；能 update/合并就不要 insert。
+- 只记录已确认事实，不猜测、不补设定。
+- 单元格并列内容使用 / 分隔。
+- 无变化输出<tableEdit><!-- --></tableEdit>。`;
 
 const STEP_BY_STEP_PROMPT = `[
-  { role: 'system', content: '你是世界状态记忆维护器。只维护六张表，不输出正文。先判断表格类型，再决定覆盖、合并、删除、更新或有限追加。人物是实体，不是名字字符串；别名、昵称、外号、职位称呼变化不能自动视为新角色。必须依据已确认事实，禁止猜测。你的首要任务是维护当前有效状态，而不是不断新增记录。' },
-  { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0到5。0和1是快照型，只覆盖当前值；2是库存型，同名同类型同品质物品再次获得要把数量相加后update，消耗则相减，归0删除；3是生命周期型，事项完成/失败/取消/失效直接delete；4是实体档案型，新增人物前必须比较姓名+别名/称呼+身份+外貌+关系+重要信息+事件链，若是同一人物就update原行并补充别名，绝不能因为称呼不同而insert；5是事件归档型，只保留重大节点并优先压缩同一事件链。每次insert之前先扫描已有行。只输出<tableEdit><!-- 函数调用 --></tableEdit>。若无变化输出<tableEdit><!-- --></tableEdit>。' }
+  { role: 'system', content: '你是世界状态记忆维护器。只维护六张表，不输出正文。按表格语义维护当前有效状态。人物是实体，不是名字字符串；别名、昵称、外号、职位称呼变化不能自动视为新角色。只依据已确认事实。' },
+  { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0到5：0/1覆盖当前快照；2维护当前库存并合并数量；3维护未结束事项；4维护人物实体与别名；5只归档重大事件并压缩同一事件链。每次insert前先扫描已有行。只输出<tableEdit><!-- 函数调用 --></tableEdit>。' }
+]`;
+
+// “表格整理”不是增量追加，而是把当前六张表整体重建成一份干净的当前版本。
+// 输出必须严格为 JSON 数组；absoluteRefresh.js 会逐张 rebuildHashSheetByValueSheet 覆盖原表。
+const REBUILD_PROMPT = `[
+  { role: 'system', content: '你是世界状态数据库整理器。你的任务是重建现有六张表，而不是追加记录。必须保持六张表及其现有列结构不变，只整理 content。只输出一个合法 JSON 数组，不要输出 markdown、代码块、XML标签、<新的表格>、<tableEdit>、解释或任何前后缀。' },
+  { role: 'user', content: '<当前表格JSON>\\n$0\\n</当前表格JSON>\\n<聊天记录>\\n$1\\n</聊天记录>\\n<表头>\\n$2\\n</表头>\\n\\n请从当前表格和聊天记录中重建一份干净的六表快照。要求：0当前状态表只保留最新一行；1角色状态表只保留当前一行；2背包表表示当前实际库存，同名同类型同品质合并数量，已消耗/丢失/归0删除；3任务与约定只保留尚未结束事项；4人物表按人物实体合并，姓名/别名/称呼/身份/外貌/关系/事件链用于判断同一人物，称呼变化不得创建重复人物；5历史事件只保留影响后续的重要既成节点，同一事件链压缩合并，删除流水账和重复事件。不得把表名、标签、说明文字写进 content。不得创造新表、删表、改表名、改列名、改列顺序。未知信息留空，不猜测。输出数组中每项严格使用当前 tableName、tableIndex、columns，并给出整理后的 content 二维数组。' }
 ]`;
 
 function ensureCharacterAliasColumn(table) {
@@ -94,17 +87,20 @@ function forceWorldMemoryWriteProtocol() {
         table.separateReadLorebook = false;
         table.injection_mode = 'deep_system';
         table.deep = 1;
-        table.updateIndex = Math.max(Number(table.updateIndex || 0), 12);
+
+        // 强制把旧插件的“完整重建”模板替换为 Memo 六表专用模板。
+        // 旧模板使用另一套表结构并要求输出标签，正是整理后把标签/旧表内容粘进表内的来源。
+        table.rebuild_default_system_message_template = REBUILD_PROMPT;
+        table.rebuild_default_message_template = '';
+        table.lastSelectedTemplate = 'rebuild_base';
+        table.updateIndex = Math.max(Number(table.updateIndex || 0), 13);
 
         applicationFunctionManager.saveSettingsDebounced?.();
-        console.log('[World Memory][diag] independent table update enabled', {
+        console.log('[World Memory][diag] protocol synced', {
             enabled: table.isExtensionAble,
-            read: table.isAiReadTable,
-            write: table.isAiWriteTable,
             step_by_step: table.step_by_step,
-            use_main_api: table.step_by_step_use_main_api,
-            context_layers: table.separateReadContextLayers,
             updateIndex: table.updateIndex,
+            rebuild_template: 'memo-six-table-rebuild',
             character_alias_schema: schemaChanged ? 'migrated' : 'ready',
         });
     } catch (error) {
