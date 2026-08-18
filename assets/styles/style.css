@@ -141,3 +141,67 @@
 .operation-detail { display: flex; flex-direction: row; align-items: baseline; padding: 2px 0; }
 .operation-detail.data-detail { flex-direction: column; }
 .detail-label { font-weight: bold; margin-right: 10px; min-width: 80px; color: #aaa; }
+
+/* 独立填表控制栏：移动端避免中文被挤成逐字竖排 */
+#step_by_step_options > .checkbox_label:first-child {
+    gap: 8px;
+    flex-wrap: wrap;
+}
+#step_by_step_options > .checkbox_label:first-child > span,
+#step_by_step_options > .checkbox_label:first-child > label,
+#step_by_step_options > .checkbox_label:first-child > small,
+#trigger_step_by_step_button a {
+    white-space: nowrap;
+}
+
+@media screen and (max-width: 768px) {
+    #step_by_step_options {
+        padding-left: 0 !important;
+        width: 100% !important;
+    }
+
+    #step_by_step_options > .checkbox_label:first-child {
+        display: grid !important;
+        grid-template-columns: auto minmax(110px, 1fr);
+        gap: 10px 12px;
+        align-items: center !important;
+        padding: 8px 0;
+    }
+
+    #step_by_step_use_main_api { grid-column: 1; grid-row: 1; }
+    #step_by_step_use_main_api + span { grid-column: 2; grid-row: 1; }
+
+    #trigger_step_by_step_button {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        width: fit-content;
+        margin-left: 0 !important;
+    }
+
+    #step_by_step_options label[for="separateReadContextLayers"] {
+        grid-column: 1;
+        grid-row: 3;
+        margin-left: 0 !important;
+    }
+    #separateReadContextLayers {
+        grid-column: 2;
+        grid-row: 3;
+        width: 72px !important;
+    }
+
+    #step_by_step_options label[for="separateReadLorebook"] {
+        grid-column: 1;
+        grid-row: 4;
+        margin-left: 0 !important;
+    }
+    #separateReadLorebook {
+        grid-column: 2;
+        grid-row: 4;
+        justify-self: start;
+    }
+
+    #step_by_step_options > .checkbox_label:first-child > small {
+        grid-column: 1 / -1;
+        grid-row: 5;
+    }
+}
