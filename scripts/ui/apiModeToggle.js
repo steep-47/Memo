@@ -1,24 +1,31 @@
 import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
-const MODE_MIGRATION_VERSION = 7;
+const INIT_FLAG = 'independent_record_api_initialized';
+
+function getPrimaryStore() {
+    const root = USER?.getSettings?.();
+    if (!root) return null;
+    if (!root.muyoo_dataTable || typeof root.muyoo_dataTable !== 'object') {
+        root.muyoo_dataTable = {};
+    }
+    return root.muyoo_dataTable;
+}
+
+function ensureDefaultOffOnce() {
+    const store = getPrimaryStore();
+    if (!store) return;
+    if (store[INIT_FLAG] === true) return;
+
+    // 首次启用本开关逻辑时，明确把主设置写成 false。
+    // 这样主设置会覆盖旧 extension_settings 中可能残留的 step_by_step=true。
+    store.step_by_step = false;
+    store[INIT_FLAG] = true;
+    USER.saveSettings?.();
+}
 
 function getEnabled() {
     return USER?.tableBaseSetting?.step_by_step === true;
-}
-
-function ensureDefaultOffByConfigVersion() {
-    const settings = USER?.tableBaseSetting;
-    if (!settings) return;
-
-    const version = Number(settings.updateIndex || 0);
-    if (version >= MODE_MIGRATION_VERSION) return;
-
-    // v7 仅迁移一次：旧版本遗留的独立记录状态统一回到默认关闭。
-    // 迁移后 updateIndex=7，之后完全尊重用户自己的开关选择。
-    settings.step_by_step = false;
-    settings.updateIndex = MODE_MIGRATION_VERSION;
-    USER.saveSettings?.();
 }
 
 function applyMode(enabled, { save = true } = {}) {
@@ -34,6 +41,7 @@ function applyMode(enabled, { save = true } = {}) {
 
     if (replyOptions) replyOptions.style.display = enabled ? 'none' : '';
     if (stepOptions) {
+        // 容器始终保留；关闭时只隐藏独立记录专属控件，模板继续显示。
         stepOptions.classList.toggle('memory-independent-record-off', !enabled);
         stepOptions.style.display = '';
     }
@@ -73,7 +81,7 @@ function mountToggle() {
     const host = fillTime.parentElement;
     if (!host) return false;
 
-    ensureDefaultOffByConfigVersion();
+    ensureDefaultOffOnce();
 
     if (!document.getElementById(TOGGLE_ID)) {
         const toggle = createToggle();
@@ -97,11 +105,11 @@ function start() {
         setTimeout(() => observer.disconnect(), 10000);
     }
 
-    // 原插件 renderSetting 可能稍后再次写 display:none；这里只重新同步 UI，不改保存值。
+    // 原插件 renderSetting 可能稍后再次修改显示状态；这里只同步 UI，不改用户选择。
     [0, 50, 200, 500, 1000].forEach(delay => {
         setTimeout(() => applyMode(getEnabled(), { save: false }), delay);
     });
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载（v7 默认关闭，之后记忆用户选择）');
+console.log('[Memo] 独立记录 API 开关已加载（首次默认关闭，之后记忆用户选择）');
