@@ -1,5 +1,7 @@
 // #4 人物表仅在展示层拆成 A/B 两张短表；底层人物表结构和数据保持不变。
 // A = 当前值覆盖更新；B = 长期信息合并更新。
+// 兼容旧聊天的 8 列人物表：缺少“别名/称呼”时，B 表临时补一个空列，
+// 同时运行时源结构仍会迁移到新的 9 列定义。
 
 let refreshQueued = false;
 
@@ -40,7 +42,14 @@ function sourceSignature(source) {
         .join('\u001e');
 }
 
-function cloneColumns(source, indices, indexColumn = -1, label = '') {
+function appendVirtualCell(rowClone, sectionTag, text = '') {
+    const tag = sectionTag === 'THEAD' ? 'th' : 'td';
+    const cell = document.createElement(tag);
+    cell.textContent = text;
+    rowClone.appendChild(cell);
+}
+
+function cloneColumns(source, descriptors, indexColumn = -1, label = '') {
     const wrapper = document.createElement('div');
     wrapper.className = 'memory-person-half';
     wrapper.dataset.group = label;
@@ -62,12 +71,19 @@ function cloneColumns(source, indices, indexColumn = -1, label = '') {
                 rowClone.appendChild(cells[indexColumn].cloneNode(true));
             }
 
-            for (const index of indices) {
-                if (index === indexColumn || !cells[index]) continue;
+            for (const descriptor of descriptors) {
+                if (descriptor.virtual) {
+                    appendVirtualCell(rowClone, section.tagName, section.tagName === 'THEAD' ? descriptor.name : '');
+                    continue;
+                }
+
+                const index = descriptor.index;
+                if (index === indexColumn || index < 0 || !cells[index]) continue;
                 const cell = cells[index].cloneNode(true);
                 if (section.tagName !== 'THEAD') cleanEmptyCell(cell);
                 rowClone.appendChild(cell);
             }
+
             sectionClone.appendChild(rowClone);
         }
 
@@ -92,23 +108,37 @@ function splitPersonTable() {
     const indexColumn = headers[0] === '' ? 0 : -1;
     const indexOf = name => headers.findIndex(h => h === name);
 
-    const required = ['姓名','别名/称呼','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
-    const positions = Object.fromEntries(required.map(name => [name, indexOf(name)]));
+    // 这些列是新旧人物表都必须存在的核心列。
+    const coreRequired = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
+    const positions = Object.fromEntries(coreRequired.map(name => [name, indexOf(name)]));
 
-    if (required.some(name => positions[name] < 0)) {
+    if (coreRequired.some(name => positions[name] < 0)) {
         source.classList.remove('memory-person-source');
         container.querySelectorAll('.memory-person-two-tables').forEach(el => el.remove());
         return;
     }
 
+    const aliasIndex = indexOf('别名/称呼');
+
     // A：当前值覆盖。姓名作为主键/正式称呼也随身份确认覆盖更新。
-    const groupA = ['姓名','身份/所属','修为','与玩家关系','当前状态'].map(name => positions[name]);
-    // B：长期信息合并；重复姓名用于多人时快速对应。
-    const groupB = ['姓名','别名/称呼','外貌特征','性格','重要信息'].map(name => positions[name]);
+    const groupA = ['姓名','身份/所属','修为','与玩家关系','当前状态']
+        .map(name => ({ name, index: positions[name], virtual: false }));
+
+    // B：长期信息合并。旧 8 列人物表没有“别名/称呼”时，先在展示层补空列；
+    // 新一轮源结构迁移后会自然使用真实第 2 列。
+    const groupB = [
+        { name: '姓名', index: positions['姓名'], virtual: false },
+        aliasIndex >= 0
+            ? { name: '别名/称呼', index: aliasIndex, virtual: false }
+            : { name: '别名/称呼', index: -1, virtual: true },
+        { name: '外貌特征', index: positions['外貌特征'], virtual: false },
+        { name: '性格', index: positions['性格'], virtual: false },
+        { name: '重要信息', index: positions['重要信息'], virtual: false },
+    ];
 
     source.classList.add('memory-person-source');
 
-    const signature = sourceSignature(source);
+    const signature = `${sourceSignature(source)}|alias:${aliasIndex >= 0 ? 'real' : 'virtual'}`;
     let view = container.querySelector('.memory-person-two-tables');
     if (view?.dataset?.sourceSignature === signature) return;
 
@@ -156,5 +186,6 @@ observer.observe(document.documentElement, { childList: true, subtree: true });
 queueRefresh();
 setTimeout(queueRefresh, 250);
 setTimeout(queueRefresh, 600);
+setTimeout(queueRefresh, 1200);
 
-console.log('[世界状态记忆表格] 人物表 A/B 展示已加载');
+console.log('[世界状态记忆表格] 人物表 A/B 展示已加载（兼容旧 8 列与新 9 列）');
