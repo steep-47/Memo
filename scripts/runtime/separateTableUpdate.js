@@ -15,9 +15,9 @@ function InitChatForTableTwoStepSummary(chat) {
 function getSwipeUid(chat) {
     InitChatForTableTwoStepSummary(chat);
     const swipeUid = `${chat.uid}_${chat.swipe_id}`;
-    if (!(swipeUid in chat.two_step_links)) chat.two_step_links[swipeUid] = [];
-    if (!(swipeUid in chat.two_step_waiting)) chat.two_step_waiting[swipeUid] = true;
-    return swipeUid;
+    if (!(swipeUid in chat.two_step_links)) chat.two_step_links[chatSwipeUid] = [];
+    if (!(swipeUid in chat.two_step_waiting)) chat.two_step_waiting[chatSwipeUid] = true;
+    return chatSwipeUid;
 }
 
 function checkIfChatIsExecuted(chat, targetSwipeUid) {
@@ -53,6 +53,34 @@ function formatQuantity(number, unit) {
     return `${safeNumber}${unit || ''}`;
 }
 
+function ensureCharacterAliasColumnInSheet(sheet, referencePiece) {
+    try {
+        if (!sheet?.getContent) return false;
+        const valueSheet = sheet.getContent(true);
+        if (!Array.isArray(valueSheet) || valueSheet.length === 0) return false;
+        const header = valueSheet[0];
+        if (!Array.isArray(header) || header.includes('别名/称呼')) return false;
+        const nameCol = header.indexOf('姓名');
+        if (nameCol < 0) return false;
+        const insertAt = nameCol + 1;
+        const migrated = valueSheet.map((row, rowIndex) => {
+            const copy = [...row];
+            copy.splice(insertAt, 0, rowIndex === 0 ? '别名/称呼' : '');
+            return copy;
+        });
+        sheet.rebuildHashSheetByValueSheet(migrated);
+        sheet.source.data.note = '值得长期记忆的NPC；同一人物一行；姓名/别名/称呼共同用于识别同一实体';
+        sheet.source.data.insertNode = '新增前先检查姓名/别名/身份/外貌/事件链，确认不是已有实体才插入';
+        sheet.source.data.updateNode = '同一实体出现新姓名/昵称/外号/称呼时更新原行并补入别名；其他长期信息变化时更新';
+        sheet.save(referencePiece, true);
+        console.log('[World Memory][schema] 当前聊天人物表已兼容增加“别名/称呼”列');
+        return true;
+    } catch (error) {
+        console.warn('[World Memory][schema] 当前聊天人物表别名列迁移失败，已跳过:', error);
+        return false;
+    }
+}
+
 /**
  * 对已经成功写入的六表做按“表格语义”区分的轻量整理。
  * 只处理可确定的结构规则；语义不确定时宁可保留，避免误删。
@@ -68,6 +96,10 @@ function normalizeWorldMemorySheets(referencePiece) {
             sheet.save(referencePiece, true);
             changed = true;
         };
+
+        // 人物表结构兼容：旧聊天仅插入“别名/称呼”列，不重建、不清空其他数据。
+        const personSheet = sheets.find(s => s?.name === '人物表');
+        if (personSheet && ensureCharacterAliasColumnInSheet(personSheet, referencePiece)) changed = true;
 
         // 1) 快照型：当前状态 / 角色状态，只保留最新一行。
         for (const sheetName of ['当前状态表', '角色状态表']) {
@@ -123,7 +155,6 @@ function normalizeWorldMemorySheets(referencePiece) {
                         const sameUnit = allParsable && parsed.every(q => q.unit === unit);
 
                         if (!sameUnit) {
-                            // 无法安全相加时全部保留，不做“去重式丢数据”。
                             mergedRows.push(...rows);
                             continue;
                         }
@@ -132,7 +163,6 @@ function normalizeWorldMemorySheets(referencePiece) {
                         const total = parsed.reduce((sum, q) => sum + q.number, 0);
                         merged[quantityCol] = formatQuantity(total, unit);
 
-                        // 备注只做无损并集，避免同一物品重复购买时丢掉不同来源/说明。
                         if (remarkCol >= 0) {
                             const remarks = [...new Set(rows
                                 .map(row => String(row?.[remarkCol] ?? '').trim())
@@ -172,8 +202,8 @@ function normalizeWorldMemorySheets(referencePiece) {
             }
         }
 
-        // 4) 实体档案型：人物表不在代码层强行合并语义字段。
-        // 同名人物是否同一实体、关系/状态如何合并，交给 AI 按已有行 update，避免误伤同名角色。
+        // 4) 实体档案型：人物是否同一实体需要语义判断。
+        // 代码层只保证“别名/称呼”字段可用；同名或不同称呼的合并由 AI 依据身份、外貌、关系、事件链判断，避免误并同名角色。
 
         // 5) 事件归档型：历史事件不在代码层按文本相似度强制合并。
         // 是否属于同一事件链需要语义判断，交给提示词控制“优先 update、减少流水账”。
