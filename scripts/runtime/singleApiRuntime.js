@@ -1,4 +1,4 @@
-import { APP, BASE, USER } from '../../core/manager.js';
+import { APP, USER } from '../../core/manager.js';
 import { getTablePrompt, handleEditStrInMessage } from '../../index.js';
 import { replaceUserTag } from '../../utils/stringUtil.js';
 
@@ -9,10 +9,6 @@ function isSingleApiMode() {
 }
 
 function buildPrompt() {
-    // 不在这里主动初始化表格。
-    // getTablePrompt -> getReferencePiece -> getLastSheetsPiece 已经是原插件唯一的初始化入口；
-    // 新聊天没有表格时，它会通过 BASE.initHashSheet() 按模板创建一次。
-    // 单API运行链如果再次 initHashSheet(true)，会与原初始化竞争并生成重复表。
     const tableData = getTablePrompt(undefined, false);
     if (!tableData) return '';
 
@@ -52,12 +48,11 @@ function onPromptReady(eventData) {
     const prompt = buildPrompt();
     if (!prompt) return;
 
-    // 直接追加为本轮最后一条 system 指令，不依赖旧 injection_mode/deep/message_template。
     eventData.chat.push({ role: 'system', content: prompt });
     console.log('[Memo][single-api] 写表协议已直接注入主请求');
 }
 
-async function onMessageRendered(chatId) {
+function onMessageRendered(chatId) {
     if (!isSingleApiMode()) return;
     if (USER?.tableBaseSetting?.isExtensionAble === false || USER?.tableBaseSetting?.isAiWriteTable === false) return;
 
@@ -65,11 +60,8 @@ async function onMessageRendered(chatId) {
     if (!chat || chat.is_user) return;
 
     try {
-        // 这里只解析并保存主回复，绝不重新初始化模板。
         handleEditStrInMessage(chat);
-        await USER.saveChat?.();
-        BASE.refreshContextView?.();
-        console.log('[Memo][single-api] 主回复写表解析并保存完成');
+        console.log('[Memo][single-api] 主回复写表解析完成');
     } catch (error) {
         console.error('[Memo][single-api] 主回复写表解析失败:', error);
     }
@@ -78,4 +70,4 @@ async function onMessageRendered(chatId) {
 APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
 
-console.log('[Memo] 单API专用运行链已加载（单一初始化入口）');
+console.log('[Memo] 单API专用运行链已加载');
