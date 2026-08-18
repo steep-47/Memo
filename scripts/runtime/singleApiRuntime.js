@@ -1,14 +1,48 @@
-import { APP, USER } from '../../core/manager.js';
+import { APP, BASE, USER } from '../../core/manager.js';
 import { getTablePrompt, handleEditStrInMessage } from '../../index.js';
 import { replaceUserTag } from '../../utils/stringUtil.js';
 
 const MEMO_MARK = '# Memo 单API记忆维护';
+const EXPECTED_SHEETS = ['当前状态表','角色状态表','背包表','当前任务与约定表','人物表','历史事件表'];
 
 function isSingleApiMode() {
     return USER?.tableBaseSetting?.step_by_step !== true;
 }
 
+function hasSixSheets() {
+    try {
+        const names = new Set((BASE.getChatSheets?.() || []).map(sheet => sheet?.name).filter(Boolean));
+        return EXPECTED_SHEETS.every(name => names.has(name));
+    } catch (_) {
+        return false;
+    }
+}
+
+function ensureFreshChatSheets() {
+    try {
+        // 新聊天最常见情况是 chatMetadata.sheets 为空。只在完全没有聊天表格时强制建表，
+        // 绝不对已有表格的聊天执行重建，避免覆盖旧数据。
+        const contextSheets = BASE?.sheetsData?.context;
+        if (!Array.isArray(contextSheets) || contextSheets.length === 0) {
+            BASE.initHashSheet(true);
+        }
+
+        // 若上下文已有表，但缓存尚未就绪，读取一次使 Sheet 实例建立。
+        BASE.getChatSheets?.();
+        return hasSixSheets();
+    } catch (error) {
+        console.error('[Memo][single-api] 新聊天六表初始化失败:', error);
+        return false;
+    }
+}
+
 function buildPrompt() {
+    // 发送主请求前再次确认当前聊天已有六张表，解决新聊天 CHAT_CHANGED 与首轮生成的时序竞争。
+    if (!ensureFreshChatSheets()) {
+        console.warn('[Memo][single-api] 当前聊天六表尚未就绪，本轮不注入空协议');
+        return '';
+    }
+
     const tableData = getTablePrompt(undefined, false);
     if (!tableData) return '';
 
@@ -53,23 +87,33 @@ function onPromptReady(eventData) {
     console.log('[Memo][single-api] 写表协议已直接注入主请求');
 }
 
-function onMessageRendered(chatId) {
+async function onMessageRendered(chatId) {
     if (!isSingleApiMode()) return;
     if (USER?.tableBaseSetting?.isExtensionAble === false || USER?.tableBaseSetting?.isAiWriteTable === false) return;
 
     const chat = USER.getContext()?.chat?.[chatId];
     if (!chat || chat.is_user) return;
 
-    // 复用原插件解析器。若原监听器已处理过，tableEditMatches 会阻止重复执行。
     try {
+        // 第一条AI回复到达时再做一次保险；此时已经有可挂载 hash_sheets 的非用户消息。
+        ensureFreshChatSheets();
         handleEditStrInMessage(chat);
-        console.log('[Memo][single-api] 主回复写表解析完成');
+        await USER.saveChat?.();
+        BASE.refreshContextView?.();
+        console.log('[Memo][single-api] 主回复写表解析并保存完成');
     } catch (error) {
         console.error('[Memo][single-api] 主回复写表解析失败:', error);
     }
 }
 
+function onChatChanged() {
+    // 新聊天打开后预热六表。已有表的聊天不会重建。
+    setTimeout(ensureFreshChatSheets, 0);
+    setTimeout(ensureFreshChatSheets, 150);
+}
+
 APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
+APP.eventSource.on(APP.event_types.CHAT_CHANGED, onChatChanged);
 
-console.log('[Memo] 单API专用运行链已加载');
+console.log('[Memo] 单API专用运行链已加载（含新聊天六表初始化与显式保存）');
