@@ -1,12 +1,9 @@
 @import url("./style.css");
 
 /* WORLD-MEMORY-SIMPLE-UI：仅调整界面显示，不删除底层能力。 */
-
-/* 自用版不显示旧更新提示和开发日志入口。 */
 #inline_drawer_header_content,
 #table_debug_log_button { display: none !important; }
 
-/* 设置页铺满视口，避免下方露出聊天正文。 */
 .memory_enhancement_container,
 .memory_enhancement_settings,
 .memory_enhancement_settings > .inline-drawer,
@@ -16,10 +13,8 @@
     box-sizing: border-box;
 }
 
-/* 保留总开关，隐藏开发调试开关。 */
 .checkbox_label:has(> #table_switch_debug_mode) { display: none !important; }
 
-/* 固定的内部协议不在日常界面暴露。 */
 h4[data-i18n="Message template"],
 div:has(> #dataTable_message_template),
 div:has(> #dataTable_injection_mode),
@@ -27,7 +22,6 @@ label[for="fill_table_time"],
 #fill_table_time,
 #reply_options { display: none !important; }
 
-/* 独立填表只保留手动触发与上下文层数。 */
 #step_by_step_options > .checkbox_label:first-child > #step_by_step_use_main_api,
 #step_by_step_options > .checkbox_label:first-child > #step_by_step_use_main_api + span,
 #step_by_step_options > .checkbox_label:first-child > label[for="separateReadLorebook"],
@@ -42,11 +36,30 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
 #reset_step_by_step_user_prompt,
 #step_by_step_options > div:has(#step_by_step_user_prompt) { display: none !important; }
 
-/* 表格整理高级参数和前端渲染高级项继续隐藏。 */
 .inline-drawer:has(#rebuild--select),
 .flex1.wide100p:has(#show_settings_in_extension_menu) { display: none !important; }
 
-/* 自动记忆常用区。 */
+/* 数据页：自定义表格样式（魔法棒）不属于记忆维护主流程，仅隐藏入口。 */
+.tableEditor_renderButton,
+.table-editor-render-button,
+[data-action="custom-style"],
+[data-action="render-style"] { display: none !important; }
+
+/* 表格属性弹窗：保留表名、说明和初始化提示；隐藏固定/高级行为项。 */
+#dataTable_tableSetting_type,
+label[for="dataTable_tableSetting_type"],
+#dataTable_tableSetting_required,
+#dataTable_tableSetting_required + span,
+.checkbox:has(> #dataTable_tableSetting_required),
+#dataTable_tableSetting_triggerSend,
+#dataTable_tableSetting_triggerSend + span,
+.checkbox:has(> #dataTable_tableSetting_triggerSend),
+#dataTable_tableSetting_triggerSendDepth,
+label[for="dataTable_tableSetting_triggerSendDepth"],
+#dataTable_tableSetting_toChat,
+#dataTable_tableSetting_toChat + span,
+.checkbox:has(> #dataTable_tableSetting_toChat) { display: none !important; }
+
 #step_by_step_options::before {
     content: '自动记录已启用 · AI 回复后自动维护记忆';
     display: block;
@@ -66,8 +79,6 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     white-space: nowrap !important;
 }
 #separateReadContextLayers { width: 64px !important; }
-
-/* 将“立即填表”显示成更直观的“手动更新记忆”。 */
 #trigger_step_by_step_button { margin-left: 0 !important; }
 #trigger_step_by_step_button > span,
 #trigger_step_by_step_button > a { font-size: 0 !important; }
@@ -76,8 +87,6 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     content: '手动更新记忆';
     font-size: 14px;
 }
-
-/* 说明按钮用途，避免与表格整理混淆。 */
 #step_by_step_options > .checkbox_label:first-child::after {
     content: '漏记时使用：立即读取最近上下文并补充更新六张记忆表。';
     flex-basis: 100%;
@@ -93,22 +102,14 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     .memory_enhancement_settings,
     .memory_enhancement_settings > .inline-drawer,
     .memory_enhancement_settings > .inline-drawer > .inline-drawer-content,
-    #memory_enhancement_settings_inline_drawer_content {
-        min-height: calc(100dvh - 64px);
-    }
-    #step_by_step_options {
-        padding-left: 0 !important;
-        width: 100% !important;
-    }
+    #memory_enhancement_settings_inline_drawer_content { min-height: calc(100dvh - 64px); }
+    #step_by_step_options { padding-left: 0 !important; width: 100% !important; }
     #step_by_step_options > .checkbox_label:first-child {
         display: grid !important;
         grid-template-columns: minmax(132px, 1fr) auto 64px !important;
         gap: 8px !important;
         width: 100% !important;
     }
-    #trigger_step_by_step_button {
-        min-width: 132px !important;
-        justify-content: center !important;
-    }
+    #trigger_step_by_step_button { min-width: 132px !important; justify-content: center !important; }
     #step_by_step_options > .checkbox_label:first-child::after { grid-column: 1 / -1; }
 }
