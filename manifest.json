@@ -4,7 +4,7 @@
   "requires":[],
   "optional":[],
   "js":"index.js",
-  "css":"assets/styles/style.css",
+  "css":"assets/styles/simple-ui.css",
   "author":"private",
   "version":"2.2.18-world.1"
 }
