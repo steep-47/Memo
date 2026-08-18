@@ -1,6 +1,6 @@
-// #4 人物表仅在展示层拆成 A/B 两张短表；底层人物表结构和数据保持不变。
-// A = 当前值覆盖更新；B = 长期信息合并更新。
-// 兼容旧聊天的 8 列人物表：缺少“别名/称呼”时，B 表临时补一个空列，
+// #4 人物表仅在展示层拆成两张短表；底层人物表结构和数据保持不变。
+// 第一张显示当前值字段，第二张显示长期信息字段；界面不额外显示分组标签。
+// 兼容旧聊天的 8 列人物表：缺少“别名/称呼”时，第二张表临时补一个空列，
 // 同时运行时源结构仍会迁移到新的 9 列定义。
 
 let refreshQueued = false;
@@ -43,8 +43,6 @@ function sourceSignature(source) {
 }
 
 function appendVirtualCell(rowClone, isHeaderRow, text = '', templateCell = null) {
-    // 不能创建一个“裸”th/td，否则 SillyTavern 原表格的边框/单元格类不会继承，
-    // 会出现“别名/称呼”有文字但没有线框的问题。
     const cell = templateCell
         ? templateCell.cloneNode(true)
         : document.createElement(isHeaderRow ? 'th' : 'td');
@@ -54,15 +52,9 @@ function appendVirtualCell(rowClone, isHeaderRow, text = '', templateCell = null
     rowClone.appendChild(cell);
 }
 
-function cloneColumns(source, descriptors, indexColumn = -1, label = '', headerRow = null) {
+function cloneColumns(source, descriptors, indexColumn = -1, headerRow = null) {
     const wrapper = document.createElement('div');
     wrapper.className = 'memory-person-half';
-    wrapper.dataset.group = label;
-
-    const groupLabel = document.createElement('div');
-    groupLabel.className = 'memory-person-group-label';
-    groupLabel.textContent = label === 'A' ? 'A（覆盖）' : 'B（合并）';
-    wrapper.appendChild(groupLabel);
 
     const table = source.cloneNode(false);
     table.removeAttribute('id');
@@ -131,10 +123,10 @@ function splitPersonTable() {
 
     const aliasIndex = indexOf('别名/称呼');
 
-    const groupA = ['姓名','身份/所属','修为','与玩家关系','当前状态']
+    const firstGroup = ['姓名','身份/所属','修为','与玩家关系','当前状态']
         .map(name => ({ name, index: positions[name], virtual: false }));
 
-    const groupB = [
+    const secondGroup = [
         { name: '姓名', index: positions['姓名'], virtual: false },
         aliasIndex >= 0
             ? { name: '别名/称呼', index: aliasIndex, virtual: false }
@@ -153,8 +145,8 @@ function splitPersonTable() {
     const nextView = document.createElement('div');
     nextView.className = 'memory-person-two-tables';
     nextView.dataset.sourceSignature = signature;
-    nextView.appendChild(cloneColumns(source, groupA, indexColumn, 'A', headerRow));
-    nextView.appendChild(cloneColumns(source, groupB, indexColumn, 'B', headerRow));
+    nextView.appendChild(cloneColumns(source, firstGroup, indexColumn, headerRow));
+    nextView.appendChild(cloneColumns(source, secondGroup, indexColumn, headerRow));
 
     if (view) {
         view.replaceWith(nextView);
@@ -196,4 +188,4 @@ setTimeout(queueRefresh, 250);
 setTimeout(queueRefresh, 600);
 setTimeout(queueRefresh, 1200);
 
-console.log('[世界状态记忆表格] 人物表 A/B 展示已加载（兼容旧 8 列与新 9 列）');
+console.log('[世界状态记忆表格] 人物表双行展示已加载（兼容旧 8 列与新 9 列）');
