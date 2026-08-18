@@ -87,6 +87,25 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     will-change: transform;
 }
 
+/* #1 角色状态表：原始长表仅作为数据源，界面只显示拆分后的两张短表。 */
+#contentContainer.memory-table-pinch-area .memory-role-status-source {
+    display: none !important;
+}
+
+#contentContainer.memory-table-pinch-area .memory-role-status-two-tables {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin: 2px 0 8px;
+}
+
+#contentContainer.memory-table-pinch-area .memory-role-status-half-table {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+}
+
 #contentContainer.memory-table-pinch-area *::-webkit-scrollbar {
     height: 0 !important;
 }
