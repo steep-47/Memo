@@ -50,7 +50,11 @@
         </div>
     </div>
     <hr />
-    <div id="contentContainer" class="memory-table-pinch-area">
+    <div id="contentContainer" class="memory-table-pinch-area"
+        ontouchstart="if(event.touches.length===2){const a=event.touches[0],b=event.touches[1];this.dataset.pinchDist=String(Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY));this.dataset.pinchStartScale=this.dataset.pinchScale||'1';}"
+        ontouchmove="if(event.touches.length===2&&this.dataset.pinchDist){const a=event.touches[0],b=event.touches[1];const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);const start=Number(this.dataset.pinchDist);const base=Number(this.dataset.pinchStartScale||1);let s=base*(d/start);s=Math.max(0.6,Math.min(2,s));const t=this.querySelector('#tableContainer');if(t){t.style.zoom=String(s);this.dataset.pinchScale=String(s);}event.preventDefault();}"
+        ontouchend="if(event.touches.length<2){delete this.dataset.pinchDist;delete this.dataset.pinchStartScale;}"
+        ontouchcancel="delete this.dataset.pinchDist;delete this.dataset.pinchStartScale;">
         <div id="tableContainer">
         </div>
     </div>
