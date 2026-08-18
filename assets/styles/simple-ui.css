@@ -43,8 +43,12 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     font-size: .9em;
 }
 
-/* 单 API 模式只隐藏“独立记录”专属说明和手动/上下文控件。
-   不隐藏整个 step_by_step_options，避免其下方“模板”折叠区一起消失。 */
+/* 单 API 模式必须保留整个容器，因为“模板”位于其中。
+   使用 !important 覆盖原插件 renderSetting() 后写入的 display:none。 */
+#step_by_step_options.memory-independent-record-off {
+    display: block !important;
+}
+
 #step_by_step_options.memory-independent-record-off::before {
     display: none !important;
 }
