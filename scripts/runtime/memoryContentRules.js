@@ -4,9 +4,24 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 const RULE_MARK = '[角色身份归一规则]';
 const PLAYER_COLUMNS = ['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
 const PERSON_COLUMNS = ['姓名','别名/称呼','性别','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
+
+const SINGLE_API_TEMPLATE = `# Memo 世界状态记忆
+## 表格：0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件
+{{tableData}}
+# 写表操作
+insertRow(tableIndex:number,data:{[colIndex:number]:string|number})
+updateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})
+deleteRow(tableIndex:number,rowIndex:number)
+# 必须遵守
+- 先正常完成本轮剧情回复，再检查0→1→2→3→4→5六张表。
+- 只有确有变化时才写表；已有同一对象优先update，禁止重复insert。
+- 不猜测未知；未知、没有、未提及的信息留空。
+- 写表指令必须放在回复末尾的<tableEdit><!-- 函数调用 --></tableEdit>中；没有变化时不要输出<tableEdit>。
+- <tableEdit>只用于后台记忆维护，不要在正文中解释写表过程。`;
+
 const STEP_BY_STEP_PROMPT = `[
   {"role":"system","content":"你是世界状态记忆表格整理助手。只根据已确认事实维护现有六张表；已有同一对象优先更新，不重复新建，不猜测未知。只输出<tableEdit><!-- 函数调用 --></tableEdit>。"},
-  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮AI回复>\\n$2\\n</本轮AI回复>"}
+  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮用户与AI交互>\\n$2\\n</本轮用户与AI交互>"}
 ]`;
 
 const compactRules = `\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC；NPC一律进入表4“人物表”。\n- 表4“人物表”仅记录NPC，禁止把<user>/玩家本人写入人物表。\n- 性别只记录剧情已明确确认的信息；未明确时留空，不根据姓名、外貌或称呼猜测。\n- 角色状态/人物记录必须先判断是否为同一人物；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC首次只有描述性称呼时可暂作姓名；正式名字出现后替换临时姓名。真实昵称、外号、道号、稳定职衔写入“别名/称呼”。\n- 身份证据不足时不要强行合并；确认同一人物后只保留一条主记录。\n- 所有属性统一使用“神识”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写占位词，也不得猜测。\n`;
@@ -15,6 +30,26 @@ function appendOnce(text) {
     const value = String(text || '');
     if (!value.includes(RULE_MARK)) return value + compactRules;
     return value.replace(/\n\[角色身份归一规则\][\s\S]*?(?=\n#|$)/, compactRules.trimEnd());
+}
+
+function ensureSingleApiTemplate(settings) {
+    const current = String(settings.message_template || '');
+    const hasTableData = current.includes('{{tableData}}');
+    const hasEditFunctions = /insertRow\s*\(|updateRow\s*\(|deleteRow\s*\(/.test(current);
+    const hasTableEdit = current.includes('<tableEdit>');
+
+    // 这些控件已从简化UI隐藏，因此旧配置若缺少核心结构，直接恢复Memo可用模板。
+    if (!hasTableData || !hasEditFunctions || !hasTableEdit) {
+        settings.message_template = SINGLE_API_TEMPLATE;
+    }
+    settings.message_template = appendOnce(settings.message_template);
+
+    // 单API完全依赖 CHAT_COMPLETION_PROMPT_READY 注入；禁止旧配置残留 injection_off。
+    if (!['deep_system','deep_user','deep_assistant'].includes(settings.injection_mode)) {
+        settings.injection_mode = 'deep_system';
+    }
+    if (settings.injection_mode === 'injection_off') settings.injection_mode = 'deep_system';
+    if (!Number.isFinite(Number(settings.deep)) || Number(settings.deep) < 0) settings.deep = 1;
 }
 
 function getTable(settings, index, name) {
@@ -52,13 +87,13 @@ function patchSettings(settings) {
     settings.isAiReadTable = true;
     settings.isAiWriteTable = true;
 
-    // 独立记录执行器要求 JSON/JSON5 消息数组；旧的普通文本模板无法执行，自动迁移为当前可用默认结构。
+    ensureSingleApiTemplate(settings);
+
     const stepPrompt = String(settings.step_by_step_user_prompt || '').trim();
     if (!stepPrompt.startsWith('[')) settings.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
 
     fixPlayerSchema(settings);
     fixPersonSchema(settings);
-    if ('message_template' in settings) settings.message_template = appendOnce(settings.message_template);
     if ('refresh_system_message_template' in settings) settings.refresh_system_message_template = appendOnce(settings.refresh_system_message_template);
     if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendOnce(settings.refresh_user_message_template);
 }
@@ -143,4 +178,4 @@ setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[Memo] 单/独立API、玩家/NPC职责、性别、身份归一、空值、神识与独立提示模板规则已加载');
+console.log('[Memo] 单API注入、双API、玩家/NPC职责、性别、身份归一、空值与神识规则已加载');
