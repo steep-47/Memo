@@ -41,11 +41,10 @@ const STEP_BY_STEP_PROMPT = `[
   { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0到5：0/1覆盖当前快照；2维护当前库存并合并数量；3维护未结束事项；4维护人物实体与别名；5只归档重大事件并压缩同一事件链。每次insert前先扫描已有行。只输出<tableEdit><!-- 函数调用 --></tableEdit>。' }
 ]`;
 
-// “表格整理”不是增量追加，而是把当前六张表整体重建成一份干净的当前版本。
-// 输出必须严格为 JSON 数组；absoluteRefresh.js 会逐张 rebuildHashSheetByValueSheet 覆盖原表。
+// 表格整理输出的是“最终表内容”，不是旧表+新表，也不是表格文本。
 const REBUILD_PROMPT = `[
-  { role: 'system', content: '你是世界状态数据库整理器。你的任务是重建现有六张表，而不是追加记录。必须保持六张表及其现有列结构不变，只整理 content。只输出一个合法 JSON 数组，不要输出 markdown、代码块、XML标签、<新的表格>、<tableEdit>、解释或任何前后缀。' },
-  { role: 'user', content: '<当前表格JSON>\\n$0\\n</当前表格JSON>\\n<聊天记录>\\n$1\\n</聊天记录>\\n<表头>\\n$2\\n</表头>\\n\\n请从当前表格和聊天记录中重建一份干净的六表快照。要求：0当前状态表只保留最新一行；1角色状态表只保留当前一行；2背包表表示当前实际库存，同名同类型同品质合并数量，已消耗/丢失/归0删除；3任务与约定只保留尚未结束事项；4人物表按人物实体合并，姓名/别名/称呼/身份/外貌/关系/事件链用于判断同一人物，称呼变化不得创建重复人物；5历史事件只保留影响后续的重要既成节点，同一事件链压缩合并，删除流水账和重复事件。不得把表名、标签、说明文字写进 content。不得创造新表、删表、改表名、改列名、改列顺序。未知信息留空，不猜测。输出数组中每项严格使用当前 tableName、tableIndex、columns，并给出整理后的 content 二维数组。' }
+  { role: 'system', content: '你是世界状态数据库整理器。你必须返回六张表整理完成后的最终状态。注意：这是替换结果，不是追加结果。当前表格只是整理素材，绝不能原样复制旧行后再追加新行。columns 是表头，content 只能包含数据行，严禁把 columns/表头再放进 content。只输出一个合法 JSON 数组，不输出 markdown、代码块、XML标签、<新的表格>、<tableEdit>、说明或任何前后缀。' },
+  { role: 'user', content: '<当前表格JSON>\\n$0\\n</当前表格JSON>\\n<聊天记录>\\n$1\\n</聊天记录>\\n<固定表头>\\n$2\\n</固定表头>\\n\\n请重新计算并输出六张表的【最终状态】，不是修改记录，也不是旧表与新表的拼接。强制规则：①每张表的 columns 必须与当前表头完全相同；②content 中不得出现任何一行与 columns 相同或类似的表头文字；③0当前状态表 content 最多1行，只取时间线上最新状态，旧状态行必须丢弃；④1角色状态表 content 最多1行，只取角色当前最新状态，旧状态行必须丢弃；⑤2背包只输出此刻实际持有库存，同物品同类型同品质合并数量，已消耗/丢失/归0不输出；⑥3任务约定只输出尚未结束事项；⑦4人物按实体合并，姓名/别名/称呼变化不能形成重复人物；⑧5历史只输出整理后的重要事件，同一事件链压缩，重复和流水过程不输出；⑨空表必须写 content:[]，绝不能为了占位把列名复制成一条数据；⑩不得创造新表、删表、改表名、改列名或改列顺序。输出数组每项仅含 tableName、tableIndex、columns、content。再次确认：content=最终数据行，绝不是[旧数据行+表头行+新数据行]。' }
 ]`;
 
 function ensureCharacterAliasColumn(table) {
@@ -88,19 +87,17 @@ function forceWorldMemoryWriteProtocol() {
         table.injection_mode = 'deep_system';
         table.deep = 1;
 
-        // 强制把旧插件的“完整重建”模板替换为 Memo 六表专用模板。
-        // 旧模板使用另一套表结构并要求输出标签，正是整理后把标签/旧表内容粘进表内的来源。
         table.rebuild_default_system_message_template = REBUILD_PROMPT;
         table.rebuild_default_message_template = '';
         table.lastSelectedTemplate = 'rebuild_base';
-        table.updateIndex = Math.max(Number(table.updateIndex || 0), 13);
+        table.updateIndex = Math.max(Number(table.updateIndex || 0), 14);
 
         applicationFunctionManager.saveSettingsDebounced?.();
         console.log('[World Memory][diag] protocol synced', {
             enabled: table.isExtensionAble,
             step_by_step: table.step_by_step,
             updateIndex: table.updateIndex,
-            rebuild_template: 'memo-six-table-rebuild',
+            rebuild_template: 'memo-six-table-final-state-v2',
             character_alias_schema: schemaChanged ? 'migrated' : 'ready',
         });
     } catch (error) {
