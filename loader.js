@@ -1,7 +1,6 @@
 import './index.js';
 import './scripts/runtime/memoryContentRules.js';
-import './scripts/runtime/singleApiGuard.js';
-import './scripts/runtime/singleApiDiagnostics.js';
+import './scripts/runtime/singleApiRuntime.js';
 import './scripts/ui/pinchZoom.js';
 import './scripts/ui/personTableSplit.js';
 import './scripts/ui/apiModeToggle.js';
