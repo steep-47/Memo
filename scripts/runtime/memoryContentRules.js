@@ -1,8 +1,9 @@
-import { USER } from '../../core/manager.js';
+import { BASE, USER } from '../../core/manager.js';
 import { defaultSettings } from '../../data/pluginSetting.js';
 
 const RULE_MARK = '[角色身份归一规则]';
 const PERSON_COLUMNS = ['姓名','别名/称呼','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
+const LEGACY_PERSON_COLUMNS = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
 
 const compactRules = `\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC；NPC无论重要程度一律进入表4“人物表”。\n- 表4“人物表”仅记录NPC，禁止把<user>/玩家本人写入人物表；NPC的修为记录在人物表“修为”，其他值得长期保留但无独立字段的信息写入“重要信息”。\n- 角色状态/人物记录必须先判断是否为同一人物；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC姓名使用第一个已确认的正式名字或稳定正式称呼。首次出场若只有“灰袍男子/黑衣人/老者”等描述性称呼，可暂作当前姓名用于唯一识别；正式名字或正式称呼出现后，立即将姓名更新为正式称呼，并删除这种临时描述称呼，不永久保留为别名。\n- 人物表A类字段（姓名、身份/所属、修为、与玩家关系、当前状态）记录当前有效值，发生明确变化时覆盖旧值。\n- 人物表B类字段（别名/称呼、外貌特征、性格、重要信息）保留仍有效且有长期价值的信息，新事实与旧事实合并；明确失效、错误或被新事实否定的内容才移除。\n- 真实存在且仍用于称呼NPC的昵称、外号、道号、稳定职衔等写入“别名/称呼”；后续识别这些叫法时必须归并到同一人物。\n- 身份证据不足时不要强行合并不同人物；确认同一人物后只保留一条主记录。\n- 所有属性统一使用“神识”，不得把神识属性写成“神魂”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写“未知/暂无/无/没有/未提及/N/A”等占位词；不得为了填满字段而猜测。\n`;
 
@@ -50,15 +51,61 @@ function patchSettings(settings) {
     if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendOnce(settings.refresh_user_message_template);
 }
 
+function sameHeaders(a, b) {
+    return Array.isArray(a) && a.length === b.length && a.every((value, index) => String(value || '').trim() === b[index]);
+}
+
+function migrateLegacyPersonSheet() {
+    let migrated = false;
+
+    try {
+        const sheets = BASE.getChatSheets();
+        for (const sheet of sheets) {
+            if (!sheet || sheet.name !== '人物表') continue;
+
+            const header = sheet.getHeader?.() || [];
+            if (header.includes('别名/称呼')) continue;
+            if (!sameHeaders(header, LEGACY_PERSON_COLUMNS)) continue;
+
+            const valueSheet = sheet.getContent?.(true);
+            if (!Array.isArray(valueSheet) || valueSheet.length === 0) continue;
+
+            const migratedValues = valueSheet.map((row, rowIndex) => {
+                const next = Array.isArray(row) ? row.slice() : [];
+                // 第0列是内部行号/表格原点，第1列是“姓名”；真实新列必须插在姓名之后。
+                next.splice(2, 0, rowIndex === 0 ? '别名/称呼' : '');
+                return next;
+            });
+
+            sheet.rebuildHashSheetByValueSheet(migratedValues);
+            sheet.markPositionCacheDirty?.();
+            sheet.save(undefined, true);
+            migrated = true;
+            console.log('[世界状态记忆表格] 已将旧8列人物表迁移为真实9列人物表', sheet.uid);
+        }
+
+        if (migrated) {
+            USER.saveChat();
+            BASE.refreshContextView?.();
+        }
+    } catch (error) {
+        console.warn('[世界状态记忆表格] 旧人物表迁移失败，将保留兼容展示，不破坏原数据', error);
+    }
+
+    return migrated;
+}
+
 // 默认设置与当前聊天同时修正，避免只有新聊天生效。
 patchSettings(defaultSettings);
 
-function patchCurrentSettings() {
+function patchCurrentSettingsAndData() {
     patchSettings(USER?.tableBaseSetting);
+    migrateLegacyPersonSheet();
 }
 
-queueMicrotask(patchCurrentSettings);
-setTimeout(patchCurrentSettings, 250);
-setTimeout(patchCurrentSettings, 1000);
+queueMicrotask(patchCurrentSettingsAndData);
+setTimeout(patchCurrentSettingsAndData, 250);
+setTimeout(patchCurrentSettingsAndData, 1000);
+setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[世界状态记忆表格] 玩家/NPC表职责锁定、人物表A/B、身份归一、空值与神识规则已加载');
+console.log('[世界状态记忆表格] 玩家/NPC表职责锁定、人物表真实9列迁移、A/B、身份归一、空值与神识规则已加载');
