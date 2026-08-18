@@ -42,14 +42,13 @@ function sourceSignature(source) {
         .join('\u001e');
 }
 
-function appendVirtualCell(rowClone, sectionTag, text = '') {
-    const tag = sectionTag === 'THEAD' ? 'th' : 'td';
-    const cell = document.createElement(tag);
-    cell.textContent = text;
+function appendVirtualCell(rowClone, isHeaderRow, text = '') {
+    const cell = document.createElement(isHeaderRow ? 'th' : 'td');
+    cell.textContent = isHeaderRow ? text : '';
     rowClone.appendChild(cell);
 }
 
-function cloneColumns(source, descriptors, indexColumn = -1, label = '') {
+function cloneColumns(source, descriptors, indexColumn = -1, label = '', headerRow = null) {
     const wrapper = document.createElement('div');
     wrapper.className = 'memory-person-half';
     wrapper.dataset.group = label;
@@ -66,6 +65,7 @@ function cloneColumns(source, descriptors, indexColumn = -1, label = '') {
         for (const row of Array.from(section.rows || [])) {
             const rowClone = row.cloneNode(false);
             const cells = Array.from(row.cells || []);
+            const isHeaderRow = row === headerRow;
 
             if (indexColumn >= 0 && cells[indexColumn]) {
                 rowClone.appendChild(cells[indexColumn].cloneNode(true));
@@ -73,14 +73,14 @@ function cloneColumns(source, descriptors, indexColumn = -1, label = '') {
 
             for (const descriptor of descriptors) {
                 if (descriptor.virtual) {
-                    appendVirtualCell(rowClone, section.tagName, section.tagName === 'THEAD' ? descriptor.name : '');
+                    appendVirtualCell(rowClone, isHeaderRow, descriptor.name);
                     continue;
                 }
 
                 const index = descriptor.index;
                 if (index === indexColumn || index < 0 || !cells[index]) continue;
                 const cell = cells[index].cloneNode(true);
-                if (section.tagName !== 'THEAD') cleanEmptyCell(cell);
+                if (!isHeaderRow) cleanEmptyCell(cell);
                 rowClone.appendChild(cell);
             }
 
@@ -108,7 +108,6 @@ function splitPersonTable() {
     const indexColumn = headers[0] === '' ? 0 : -1;
     const indexOf = name => headers.findIndex(h => h === name);
 
-    // 这些列是新旧人物表都必须存在的核心列。
     const coreRequired = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
     const positions = Object.fromEntries(coreRequired.map(name => [name, indexOf(name)]));
 
@@ -120,12 +119,9 @@ function splitPersonTable() {
 
     const aliasIndex = indexOf('别名/称呼');
 
-    // A：当前值覆盖。姓名作为主键/正式称呼也随身份确认覆盖更新。
     const groupA = ['姓名','身份/所属','修为','与玩家关系','当前状态']
         .map(name => ({ name, index: positions[name], virtual: false }));
 
-    // B：长期信息合并。旧 8 列人物表没有“别名/称呼”时，先在展示层补空列；
-    // 新一轮源结构迁移后会自然使用真实第 2 列。
     const groupB = [
         { name: '姓名', index: positions['姓名'], virtual: false },
         aliasIndex >= 0
@@ -145,8 +141,8 @@ function splitPersonTable() {
     const nextView = document.createElement('div');
     nextView.className = 'memory-person-two-tables';
     nextView.dataset.sourceSignature = signature;
-    nextView.appendChild(cloneColumns(source, groupA, indexColumn, 'A'));
-    nextView.appendChild(cloneColumns(source, groupB, indexColumn, 'B'));
+    nextView.appendChild(cloneColumns(source, groupA, indexColumn, 'A', headerRow));
+    nextView.appendChild(cloneColumns(source, groupB, indexColumn, 'B', headerRow));
 
     if (view) {
         view.replaceWith(nextView);
