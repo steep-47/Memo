@@ -1,0 +1,55 @@
+name: repair-memory
+
+on:
+  push:
+    paths:
+      - '.repair-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply minimal memory repair
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) 恢复原版 index.js 执行链：撤掉动态排序挂钩
+          p = Path('index.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("import { applyDynamicTableSorting } from './utils/tableSorting.js';\n", '')
+          s = s.replace('    applyDynamicTableSorting(sheets)\n', '')
+          p.write_text(s, encoding='utf-8')
+
+          # 2) 配置版本升级，确保旧安装会触发一次迁移
+          p = Path('data/pluginSetting.js')
+          s = p.read_text(encoding='utf-8')
+          if 'updateIndex:5,' not in s:
+              raise SystemExit('expected updateIndex:5 not found')
+          s = s.replace('updateIndex:5,', 'updateIndex:6,', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # 3) 只迁移世界状态版真正需要的配置，不碰执行核心
+          p = Path('scripts/settings/userExtensionSetting.js')
+          s = p.read_text(encoding='utf-8')
+          anchor = '''    if (USER.tableBaseSetting.updateIndex < 5) {\n        USER.tableBaseSetting.tableStructure = JSON.parse(JSON.stringify(USER.tableBaseDefaultSettings.tableStructure));\n        initTableStructureToTemplate();\n        USER.tableBaseSetting.updateIndex = 5;\n    }\n'''
+          if anchor not in s:
+              raise SystemExit('migration anchor not found')
+          block = anchor + '''    if (USER.tableBaseSetting.updateIndex < 6) {\n        USER.tableBaseSetting.message_template = USER.tableBaseDefaultSettings.message_template;\n        USER.tableBaseSetting.refresh_system_message_template = USER.tableBaseDefaultSettings.refresh_system_message_template;\n        USER.tableBaseSetting.refresh_user_message_template = USER.tableBaseDefaultSettings.refresh_user_message_template;\n        USER.tableBaseSetting.tableStructure = JSON.parse(JSON.stringify(USER.tableBaseDefaultSettings.tableStructure));\n        initTableStructureToTemplate();\n        USER.tableBaseSetting.updateIndex = 6;\n        USER.saveSettings();\n        console.log('[World Memory] 已迁移到六表动态记忆配置 v6');\n    }\n'''
+          s = s.replace(anchor, block, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          node --check index.js
+          node --check data/pluginSetting.js
+          node --check scripts/settings/userExtensionSetting.js
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add index.js data/pluginSetting.js scripts/settings/userExtensionSetting.js
+          git commit -m '修复六表写入配置迁移' || exit 0
+          git push
