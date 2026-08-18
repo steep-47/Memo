@@ -100,6 +100,17 @@ function togglePanel(event) {
         console.warn('[World Memory][directory] 目录面板创建失败');
         return;
     }
+
+    // 表格管理器可能运行在原生 dialog / SillyTavern popup 顶层。
+    // body 子节点即使 z-index 很高，也可能被 top-layer dialog 完全盖住。
+    // 点击时把目录面板迁移到当前管理器所在的弹窗内部，确保可见。
+    const button = event?.currentTarget || event?.target?.closest?.('#table_directory_button');
+    const manager = button?.closest?.('#table_manager_container');
+    const popupHost = manager?.closest?.('dialog, .popup, .popup-container, .popup_content, .popup-content') || manager;
+    if (popupHost && panel.parentElement !== popupHost) {
+        popupHost.appendChild(panel);
+    }
+
     panel.classList.toggle('open');
     if (panel.classList.contains('open')) {
         refreshTableDirectory();

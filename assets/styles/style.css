@@ -187,7 +187,7 @@ td.selected {
     position: fixed;
     top: 96px;
     right: 24px;
-    z-index: 4000;
+    z-index: 2147483647;
     display: none;
     width: 380px;
     min-width: 280px;
