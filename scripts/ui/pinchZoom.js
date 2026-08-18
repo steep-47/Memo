@@ -50,7 +50,7 @@ function normalizeHeader(text) {
     return String(text || '').replace(/\s+/g, '').trim();
 }
 
-function cloneTableColumns(source, indices, indexColumn = -1) {
+function cloneTableColumns(source, indices, indexColumn = -1, bodyRowIndex = null) {
     const clone = source.cloneNode(false);
     clone.removeAttribute('id');
     clone.classList.remove('memory-role-status-source');
@@ -58,22 +58,25 @@ function cloneTableColumns(source, indices, indexColumn = -1) {
     for (const section of Array.from(source.children)) {
         if (!['THEAD', 'TBODY', 'TFOOT'].includes(section.tagName)) continue;
         const sectionClone = section.cloneNode(false);
-        for (const row of Array.from(section.rows || [])) {
+        const rows = Array.from(section.rows || []);
+        const rowsToClone = section.tagName === 'TBODY' && bodyRowIndex !== null
+            ? (rows[bodyRowIndex] ? [rows[bodyRowIndex]] : [])
+            : rows;
+
+        for (const row of rowsToClone) {
             const rowClone = row.cloneNode(false);
             const cells = Array.from(row.cells || []);
 
-            // 行号列单独保留，但绝不参与字段断点计算。
             if (indexColumn >= 0 && cells[indexColumn]) {
                 rowClone.appendChild(cells[indexColumn].cloneNode(true));
             }
-
             for (const index of indices) {
                 if (index === indexColumn) continue;
                 if (cells[index]) rowClone.appendChild(cells[index].cloneNode(true));
             }
             sectionClone.appendChild(rowClone);
         }
-        clone.appendChild(sectionClone);
+        if (sectionClone.children.length) clone.appendChild(sectionClone);
     }
     return clone;
 }
@@ -82,7 +85,6 @@ function splitRoleStatusTable() {
     const container = document.querySelector('#tableContainer');
     if (!container) return;
 
-    // 每次表格被重新渲染后重新生成展示副本，源表不改，避免影响编辑/记忆逻辑。
     for (const oldView of container.querySelectorAll('.memory-role-status-three-rows')) oldView.remove();
     for (const oldSource of container.querySelectorAll('.memory-role-status-source')) oldSource.classList.remove('memory-role-status-source');
 
@@ -106,8 +108,6 @@ function splitRoleStatusTable() {
 
     const headers = Array.from(headerRow.cells).map(cell => normalizeHeader(cell.textContent));
     if (headers.length < 3) return;
-
-    // 最左侧空表头是 pandas/插件的行号列；它只负责显示 0/1/2，不属于角色字段。
     const indexColumn = headers[0] === '' ? 0 : -1;
 
     const name = headers.findIndex(h => h === '姓名');
@@ -119,19 +119,33 @@ function splitRoleStatusTable() {
     if (name < 0 || spiritRoot < 0 || spiritPower < 0 || money < 0 || skills < 0) return;
     if (!(name <= spiritRoot && spiritRoot < spiritPower && spiritPower <= money && money < skills)) return;
 
-    // 严格三行：
-    // 1 姓名 → 灵根/体质
-    // 2 灵力 → 钱财
-    // 3 技能/术法 → 最后字段
     const groups = [
         Array.from({ length: spiritRoot - name + 1 }, (_, i) => name + i),
         Array.from({ length: money - spiritPower + 1 }, (_, i) => spiritPower + i),
         Array.from({ length: headers.length - skills }, (_, i) => skills + i),
     ];
 
+    const bodyRows = Array.from(source.tBodies?.[0]?.rows || []);
     const view = document.createElement('div');
-    view.className = 'memory-role-status-three-rows';
-    for (const group of groups) view.appendChild(cloneTableColumns(source, group, indexColumn));
+    view.className = 'memory-role-status-three-rows memory-role-status-by-character';
+
+    // 按人物分块：同一个人物的三组字段连续显示，再进入下一个人物。
+    bodyRows.forEach((_, rowIndex) => {
+        const block = document.createElement('div');
+        block.className = 'memory-role-status-character-block';
+        for (const group of groups) {
+            block.appendChild(cloneTableColumns(source, group, indexColumn, rowIndex));
+        }
+        view.appendChild(block);
+    });
+
+    // 空表仍显示三组表头，避免角色表完全消失。
+    if (!bodyRows.length) {
+        const block = document.createElement('div');
+        block.className = 'memory-role-status-character-block';
+        for (const group of groups) block.appendChild(cloneTableColumns(source, group, indexColumn));
+        view.appendChild(block);
+    }
 
     source.classList.add('memory-role-status-source');
     const host = source.parentElement;
@@ -293,4 +307,4 @@ document.addEventListener('touchend', finishTouch, { passive: true, capture: tru
 document.addEventListener('touchcancel', finishTouch, { passive: true, capture: true });
 window.addEventListener('resize', refreshVisibleArea, { passive: true });
 
-console.log('[世界状态记忆表格] 整体缩放、横向拖动与角色表三行布局已加载');
+console.log('[世界状态记忆表格] 整体缩放、横向拖动与角色按人物三行布局已加载');
