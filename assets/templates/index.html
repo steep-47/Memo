@@ -1,1 +1,30 @@
-PLACEHOLDER
+<div class="memory_enhancement_container">
+    <div class="memory_enhancement_settings">
+        <div class="inline-drawer">
+            <div id="inline_drawer_header_content"><b style="font-size: 1.1rem">记忆增强（表格）</b></div>
+            <div class="inline-drawer-content">
+                <div id="memory_enhancement_settings_inline_drawer_content">
+                    <div id="table_message_tip"></div>
+                    <div class="persona_management_left_column flex-container wide100p flexGap10" style="padding:10px 0;gap:10px">
+                        <div class="flex1 wide50p" style="min-width:300px">
+                            <h4 class="standoutHeader">插件设置</h4>
+                            <div class="checkbox_label range-block justifyLeft"><input type="checkbox" id="table_switch"><span>启用插件</span></div>
+                            <h4 class="standoutHeader">消息模板</h4>
+                            <textarea id="dataTable_message_template" class="wide100p" rows="8"></textarea>
+                            <div><label for="dataTable_injection_mode">注入：</label><select id="dataTable_injection_mode"><option value="injection_off">关闭注入</option><option value="deep_system">@D ⚙</option><option value="deep_user">@D 👤</option><option value="deep_assistant">@D 🤖</option></select><label for="dataTable_deep">深度：</label><input id="dataTable_deep" class="text_pole" type="number"></div>
+                        </div>
+                        <div class="flex1 wide50p" style="min-width:300px">
+                            <h4 class="standoutHeader">运行策略</h4>
+                            <div class="checkbox_label range-block justifyLeft"><input type="checkbox" id="independent_record_api"><span>独立记录 API</span><small class="toggle-description justifyLeft">（关闭：正文与记录共用一次请求；开启：正文后再单独请求一次记录）</small></div>
+                            <select id="fill_table_time" style="display:none"><option value="chat">聊天的同时填表</option><option value="after">收到消息后再单独填表</option></select>
+                            <div id="reply_options" style="padding-left:20px;width:calc(100% - 20px)"><div class="checkbox_label range-block justifyLeft"><input type="checkbox" id="table_read_switch"><span>AI读表开关</span></div><div class="checkbox_label range-block justifyLeft"><input type="checkbox" id="table_edit_switch"><span>AI改表开关</span></div></div>
+                            <div id="step_by_step_options" style="padding-left:20px;width:calc(100% - 20px)"><div class="checkbox_label" style="display:flex;align-items:center"><input type="checkbox" id="step_by_step_use_main_api" checked><span>使用主API</span><div class="menu_button menu_button_icon" id="trigger_step_by_step_button" style="margin-left:10px"><i class="fa-solid fa-play"></i><a>立即填表</a></div><label for="separateReadContextLayers" style="margin-left:10px">上下文层数</label><input type="number" id="separateReadContextLayers" class="margin0 text_pole" style="width:50px" min="1" value="1"><input type="checkbox" id="separateReadLorebook" class="margin0" style="display:none"></div><textarea id="step_by_step_user_prompt" class="text_pole settings_textarea wide100p" rows="8" style="display:none"></textarea><input type="checkbox" id="confirm_before_execution" style="display:none"></div>
+                            <div class="inline-drawer wide100p"><div class="inline-drawer-toggle inline-drawer-header"><b>自定义独立API</b><div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div></div><div class="inline-drawer-content" style="display:none;padding-left:20px;width:calc(100% - 20px)"><input type="text" id="custom_api_url" class="text_pole" placeholder="API URL（请以/v1结尾）"><input type="password" id="custom_api_key" class="text_pole" placeholder="API Key"><input type="text" id="custom_model_name" class="text_pole" placeholder="Model Name"><select id="model_selector" class="text_pole"><option value="">请先获取模型列表</option></select><div class="menu_button menu_button_icon" id="fetch_models_button"><a>获取模型列表</a></div><div class="menu_button menu_button_icon" id="table_test_api_button"><a>测试</a></div><input type="range" id="custom_temperature" min="0.1" max="2" step="0.1" value="1"><span id="custom_temperature_value">1.0</span></div></div>
+                            <div style="display:none"><input id="clear_up_stairs"><span id="clear_up_stairs_value"></span><input id="rebuild_token_limit"><span id="rebuild_token_limit_value"></span><input id="ignore_user_sent" type="checkbox"><input id="bool_silent_refresh" type="checkbox"><input id="use_main_api" type="checkbox"><input id="show_settings_in_extension_menu" type="checkbox"><input id="alternate_switch" type="checkbox"><input id="show_drawer_in_extension_list" type="checkbox"><input id="table_to_chat_can_edit" type="checkbox"><input id="table_to_chat" type="checkbox"><select id="table_to_chat_mode"><option value="macro">macro</option></select><select id="table_cell_width_mode"><option value="single_line">single</option></select><select id="rebuild--select"><option value="rebuild_base">默认</option></select></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
