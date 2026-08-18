@@ -1,22 +1,9 @@
 <!-- manager.html -->
 <div class="wide100p padding5 dataBankAttachments" id="table_manager_container">
-    <!--    <h2 class="marginBot5">-->
-    <!--        <span>-->
-    <!--            数据表-->
-    <!--        </span>-->
-    <!--    </h2>-->
     <div id="tableEditTips"></div>
     <hr />
     <div style=" display: flex; justify-content: space-between; flex-wrap: wrap; ">
         <div style=" display: flex; justify-content: flex-start; flex-wrap: wrap; width: fit-content; gap: 4px;">
-            <!--            <div style="display: flex; justify-content: center;">-->
-            <!--                <select id="table_refresh_type_selector" class="text_pole" style="height: 30px; width: 200px;">-->
-            <!--                    <option value="">~~~看到这个选项说明出问题了~~~~</option>-->
-            <!--                </select>-->
-            <!--            </div>-->
-            <!--            <div style="display: flex; justify-content: center;" id="table_edit_mode_button">-->
-            <!--                <i class="menu_button menu_button_icon fa-solid fa-pen" style="height: 30px; width: 30px" title="批量编辑"></i>-->
-            <!--            </div>-->
             <div style="display: flex; justify-content: center" id="dataTable_history_button" title="查看表格编辑历史记录"
                 data-i18n="[title]View table edit history">
                 <i class="menu_button menu_button_icon fa-solid fa-history" style="height: 30px; width: 30px"></i>
@@ -32,13 +19,6 @@
             <div style="display: flex; justify-content: center" id="table_directory_button" title="表格目录">
                 <i class="menu_button menu_button_icon fa-solid fa-list" style="height: 30px; min-width: 30px">表格目录</i>
             </div>
-
-            <!--            <div style="display: flex; justify-content: center;" id="paste_table_button">-->
-            <!--                <i class="menu_button menu_button_icon fa-solid fa-paste" style="height: 30px; width: 30px" title="粘贴表格"></i>-->
-            <!--            </div>-->
-            <!-- <div style="display: flex; justify-content: center;" id="table_clear_up_button">
-                <i class="menu_button menu_button_icon fa-solid fa-broom" style="height: 30px; width: 30px" title="整理表格（可以从插件界面更改设置）"></i>
-            </div> -->
         </div>
         <div style=" display: flex; justify-content: flex-end; flex-wrap: wrap; width: fit-content; gap: 4px;">
             <div style="display: flex; justify-content: center" id="import_table_button">
@@ -56,7 +36,7 @@
         </div>
     </div>
     <hr />
-    <div style="display: flex; align-items: center; justify-content: flex-start;">
+    <div id="table_history_nav" style="display: flex; align-items: center; justify-content: center;">
         <div style="display: flex; align-items: center; gap: 4px;">
             <div id="table_prev_button" title="上一表">
                 <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">‹</i>
@@ -70,7 +50,7 @@
         </div>
     </div>
     <hr />
-    <div id="contentContainer">
+    <div id="contentContainer" class="memory-table-pinch-area">
         <div id="tableContainer">
         </div>
     </div>
