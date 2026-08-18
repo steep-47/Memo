@@ -1,7 +1,7 @@
 import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
-const INIT_FLAG = 'independent_record_api_initialized';
+const PREF_KEY = 'independent_record_api_enabled';
 
 function getPrimaryStore() {
     const root = USER?.getSettings?.();
@@ -12,44 +12,44 @@ function getPrimaryStore() {
     return root.muyoo_dataTable;
 }
 
-function ensureDefaultOffOnce() {
+function getEnabled() {
+    const store = getPrimaryStore();
+    if (!store) return false;
+    return store[PREF_KEY] === true;
+}
+
+function persistPreference(enabled) {
     const store = getPrimaryStore();
     if (!store) return;
-    if (store[INIT_FLAG] === true) return;
-
-    // 首次启用本开关逻辑时，明确把主设置写成 false。
-    // 这样主设置会覆盖旧 extension_settings 中可能残留的 step_by_step=true。
-    store.step_by_step = false;
-    store[INIT_FLAG] = true;
+    store[PREF_KEY] = !!enabled;
+    store.step_by_step = !!enabled;
     USER.saveSettings?.();
 }
 
-function getEnabled() {
-    return USER?.tableBaseSetting?.step_by_step === true;
-}
-
 function applyMode(enabled, { save = true } = {}) {
-    if (!USER?.tableBaseSetting) return;
+    const value = !!enabled;
 
-    USER.tableBaseSetting.step_by_step = !!enabled;
+    if (save) {
+        persistPreference(value);
+    } else if (USER?.tableBaseSetting) {
+        // 运行时同步给原插件实际使用的分支变量，但不改变独立偏好。
+        USER.tableBaseSetting.step_by_step = value;
+    }
 
     const fillTime = document.querySelector('#fill_table_time');
-    if (fillTime) fillTime.value = enabled ? 'after' : 'chat';
+    if (fillTime) fillTime.value = value ? 'after' : 'chat';
 
     const replyOptions = document.querySelector('#reply_options');
     const stepOptions = document.querySelector('#step_by_step_options');
 
-    if (replyOptions) replyOptions.style.display = enabled ? 'none' : '';
+    if (replyOptions) replyOptions.style.display = value ? 'none' : '';
     if (stepOptions) {
-        // 容器始终保留；关闭时只隐藏独立记录专属控件，模板继续显示。
-        stepOptions.classList.toggle('memory-independent-record-off', !enabled);
+        stepOptions.classList.toggle('memory-independent-record-off', !value);
         stepOptions.style.display = '';
     }
 
     const toggle = document.querySelector(`#${TOGGLE_ID} input[type="checkbox"]`);
-    if (toggle) toggle.checked = !!enabled;
-
-    if (save) USER.saveSettings?.();
+    if (toggle) toggle.checked = value;
 }
 
 function createToggle() {
@@ -69,7 +69,7 @@ function createToggle() {
     hint.className = 'toggle-description justifyLeft';
     hint.textContent = '（关闭：每轮共用 1 次 API；开启：正文后额外调用 1 次 API 单独记录）';
 
-    input.addEventListener('change', () => applyMode(input.checked));
+    input.addEventListener('change', () => applyMode(input.checked, { save: true }));
     label.append(input, text, hint);
     return label;
 }
@@ -81,8 +81,6 @@ function mountToggle() {
     const host = fillTime.parentElement;
     if (!host) return false;
 
-    ensureDefaultOffOnce();
-
     if (!document.getElementById(TOGGLE_ID)) {
         const toggle = createToggle();
         const runTitle = Array.from(host.querySelectorAll('h4')).find(el =>
@@ -92,6 +90,7 @@ function mountToggle() {
         else host.insertBefore(toggle, host.firstChild);
     }
 
+    // 新配置项不存在时 getEnabled() 直接返回 false，因此首次必定默认关闭。
     applyMode(getEnabled(), { save: false });
     return true;
 }
@@ -105,11 +104,11 @@ function start() {
         setTimeout(() => observer.disconnect(), 10000);
     }
 
-    // 原插件 renderSetting 可能稍后再次修改显示状态；这里只同步 UI，不改用户选择。
+    // 原插件 renderSetting 可能稍后覆盖 DOM 显示；这里只按独立偏好重新同步 UI。
     [0, 50, 200, 500, 1000].forEach(delay => {
         setTimeout(() => applyMode(getEnabled(), { save: false }), delay);
     });
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载（首次默认关闭，之后记忆用户选择）');
+console.log('[Memo] 独立记录 API 开关已加载（独立配置，首次默认关闭）');
