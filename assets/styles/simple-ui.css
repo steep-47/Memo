@@ -91,42 +91,6 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     height: 0 !important;
 }
 
-/* #1 角色状态表：仅改变展示层。每个人物独立成块，块内仍按三组字段显示。 */
-.memory-role-status-source {
-    display: none !important;
-}
-.memory-role-status-three-rows {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    width: 100%;
-    margin: 0 0 6px;
-}
-.memory-role-status-character-block {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-    width: 100%;
-    padding: 0 0 8px;
-    margin: 0 0 8px;
-    border-bottom: 1px solid rgba(128, 128, 128, .22);
-}
-.memory-role-status-character-block:last-child {
-    margin-bottom: 0;
-    border-bottom: 0;
-}
-.memory-role-status-three-rows table {
-    width: auto !important;
-    max-width: 100% !important;
-    margin: 0 !important;
-    table-layout: auto !important;
-}
-.memory-role-status-three-rows th,
-.memory-role-status-three-rows td {
-    white-space: nowrap !important;
-}
-
 @media screen and (max-width: 768px) {
     .memory_enhancement_container,
     .memory_enhancement_settings,
