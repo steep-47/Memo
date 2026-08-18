@@ -32,7 +32,7 @@ function updateButtonStates(selectedButton) {
 
 function buildTemplateDrawer(content) {
     const drawer = $(`
-        <div id="settings-template-drawer" class="inline-drawer wide100p" style="margin-top: 16px;">
+        <div id="settings-template-drawer" class="inline-drawer wide100p" style="margin-top: 8px; margin-bottom: 8px;">
             <div class="inline-drawer-toggle inline-drawer-header">
                 <b><span>模板</span></b>
                 <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
@@ -68,7 +68,16 @@ export async function initAppHeaderTableDrawer() {
     if (settingContainer === null) {
         const header = $(`<div></div>`).append($(`<div style="margin: 10px 0;"></div>`).append(inlineDrawerHeaderContent));
         settingContainer = header.append($('.memory_enhancement_container').find('#memory_enhancement_settings_inline_drawer_content'));
-        settingContainer.append(buildTemplateDrawer(tableEditDom));
+
+        // 模板入口紧跟“上下文层数”所在的常用设置行，默认折叠。
+        const templateDrawer = buildTemplateDrawer(tableEditDom);
+        const contextRow = settingContainer.find('#separateReadContextLayers').closest('.checkbox_label');
+        if (contextRow.length) {
+            contextRow.after(templateDrawer);
+        } else {
+            // 兼容异常 DOM：若找不到上下文层数，则仍保留模板入口，避免功能丢失。
+            settingContainer.append(templateDrawer);
+        }
     }
 
     databaseContentDiv = $(`<div id="database-content" style="width: 100%; height: 100%; overflow: hidden;"></div>`).append(tableViewDom);
