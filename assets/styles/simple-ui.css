@@ -39,13 +39,11 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
 .inline-drawer:has(#rebuild--select),
 .flex1.wide100p:has(#show_settings_in_extension_menu) { display: none !important; }
 
-/* 数据页：自定义表格样式（魔法棒）不属于记忆维护主流程，仅隐藏入口。 */
 .tableEditor_renderButton,
 .table-editor-render-button,
 [data-action="custom-style"],
 [data-action="render-style"] { display: none !important; }
 
-/* 表格属性弹窗：保留表名、说明和初始化提示；隐藏固定/高级行为项。 */
 #dataTable_tableSetting_type,
 label[for="dataTable_tableSetting_type"],
 #dataTable_tableSetting_required,
@@ -95,6 +93,15 @@ label[for="dataTable_tableSetting_triggerSendDepth"],
     font-size: .82em;
     line-height: 1.45;
     opacity: .68;
+}
+
+/* 横线以下为表格查看区：允许浏览器原生双指缩放，同时保持单指滚动。 */
+#contentContainer.memory-table-pinch-area {
+    touch-action: pan-x pan-y pinch-zoom;
+    overflow: visible;
+}
+#contentContainer.memory-table-pinch-area #tableContainer {
+    transform-origin: top left;
 }
 
 @media screen and (max-width: 768px) {
