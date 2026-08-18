@@ -35,12 +35,27 @@ function MarkChatAsWaiting(chat, swipeUid) {
     chat.two_step_waiting[swipeUid] = true;
 }
 
+function normalizeKey(value) {
+    return String(value ?? '').trim().toLowerCase();
+}
+
+function parseQuantity(value) {
+    const text = String(value ?? '').trim();
+    const match = text.match(/^\s*(\d+(?:\.\d+)?)\s*([^\d\s].*?)?\s*$/);
+    if (!match) return null;
+    const number = Number(match[1]);
+    if (!Number.isFinite(number)) return null;
+    return { number, unit: String(match[2] ?? '').trim() };
+}
+
+function formatQuantity(number, unit) {
+    const safeNumber = Number.isInteger(number) ? String(number) : String(Number(number.toFixed(4)));
+    return `${safeNumber}${unit || ''}`;
+}
+
 /**
- * 对已经成功写入的六表做“只处理确定规则”的轻量整理。
- * 设计原则：
- * 1. 不改增量解析/执行核心；
- * 2. 整理失败只记日志，不影响已完成的写表；
- * 3. 不对人物/历史做语义猜测或强行合并，避免误删有效信息。
+ * 对已经成功写入的六表做按“表格语义”区分的轻量整理。
+ * 只处理可确定的结构规则；语义不确定时宁可保留，避免误删。
  */
 function normalizeWorldMemorySheets(referencePiece) {
     try {
@@ -48,53 +63,95 @@ function normalizeWorldMemorySheets(referencePiece) {
         if (!Array.isArray(sheets) || sheets.length === 0) return;
 
         let changed = false;
-
         const saveValueSheet = (sheet, valueSheet) => {
             sheet.rebuildHashSheetByValueSheet(valueSheet);
             sheet.save(referencePiece, true);
             changed = true;
         };
 
-        // 当前状态表 / 角色状态表：只允许一条当前快照，异常多行时保留最新一行。
+        // 1) 快照型：当前状态 / 角色状态，只保留最新一行。
         for (const sheetName of ['当前状态表', '角色状态表']) {
             const sheet = sheets.find(s => s?.name === sheetName);
             if (!sheet?.getContent) continue;
             const valueSheet = sheet.getContent(true);
             if (Array.isArray(valueSheet) && valueSheet.length > 2) {
                 saveValueSheet(sheet, [valueSheet[0], valueSheet[valueSheet.length - 1]]);
-                console.log(`[World Memory][normalize] ${sheetName} 多行快照已压缩为最新一行`);
+                console.log(`[World Memory][normalize] ${sheetName} 已压缩为最新快照`);
             }
         }
 
-        // 背包：同名物品只保留最新一条。数量/状态应该由 AI update；若误 insert，代码层兜底去重。
+        // 2) 库存型：背包按“物品名+类型+状态/品质”归组。
+        // 数量能解析且单位一致时相加；不同品质/状态/单位不强制合并。
         const bagSheet = sheets.find(s => s?.name === '背包表');
         if (bagSheet?.getContent) {
             const valueSheet = bagSheet.getContent(true);
             if (Array.isArray(valueSheet) && valueSheet.length > 2) {
                 const header = valueSheet[0];
-                const itemNameCol = header.indexOf('物品名');
-                if (itemNameCol >= 0) {
-                    const seen = new Set();
-                    const keptReverse = [];
-                    for (let i = valueSheet.length - 1; i >= 1; i--) {
-                        const row = valueSheet[i];
-                        const key = String(row?.[itemNameCol] ?? '').trim().toLowerCase();
-                        // 空名称不主动删除，避免误伤异常但可能有用的数据。
-                        if (!key || !seen.has(key)) {
-                            keptReverse.push(row);
-                            if (key) seen.add(key);
+                const nameCol = header.indexOf('物品名');
+                const typeCol = header.indexOf('类型');
+                const quantityCol = header.indexOf('数量');
+                const stateCol = header.indexOf('状态/品质');
+                const remarkCol = header.indexOf('备注');
+
+                if (nameCol >= 0 && quantityCol >= 0) {
+                    const groups = new Map();
+                    const passthrough = [];
+
+                    for (const row of valueSheet.slice(1)) {
+                        const name = normalizeKey(row?.[nameCol]);
+                        if (!name) {
+                            passthrough.push(row);
+                            continue;
                         }
+                        const type = typeCol >= 0 ? normalizeKey(row?.[typeCol]) : '';
+                        const state = stateCol >= 0 ? normalizeKey(row?.[stateCol]) : '';
+                        const key = `${name}||${type}||${state}`;
+                        if (!groups.has(key)) groups.set(key, []);
+                        groups.get(key).push(row);
                     }
-                    const cleaned = [header, ...keptReverse.reverse()];
-                    if (cleaned.length !== valueSheet.length) {
+
+                    const mergedRows = [];
+                    for (const rows of groups.values()) {
+                        if (rows.length === 1) {
+                            mergedRows.push(rows[0]);
+                            continue;
+                        }
+
+                        const parsed = rows.map(row => parseQuantity(row?.[quantityCol]));
+                        const allParsable = parsed.every(Boolean);
+                        const unit = allParsable ? parsed[0].unit : null;
+                        const sameUnit = allParsable && parsed.every(q => q.unit === unit);
+
+                        if (!sameUnit) {
+                            // 无法安全相加时全部保留，不做“去重式丢数据”。
+                            mergedRows.push(...rows);
+                            continue;
+                        }
+
+                        const merged = [...rows[0]];
+                        const total = parsed.reduce((sum, q) => sum + q.number, 0);
+                        merged[quantityCol] = formatQuantity(total, unit);
+
+                        // 备注只做无损并集，避免同一物品重复购买时丢掉不同来源/说明。
+                        if (remarkCol >= 0) {
+                            const remarks = [...new Set(rows
+                                .map(row => String(row?.[remarkCol] ?? '').trim())
+                                .filter(Boolean))];
+                            merged[remarkCol] = remarks.join(' / ');
+                        }
+                        mergedRows.push(merged);
+                    }
+
+                    const cleaned = [header, ...mergedRows, ...passthrough];
+                    if (cleaned.length !== valueSheet.length || JSON.stringify(cleaned) !== JSON.stringify(valueSheet)) {
                         saveValueSheet(bagSheet, cleaned);
-                        console.log(`[World Memory][normalize] 背包重复物品已去重: ${valueSheet.length - cleaned.length} 行`);
+                        console.log('[World Memory][normalize] 背包同类库存已按数量合并');
                     }
                 }
             }
         }
 
-        // 当前任务与约定：完成/失败/取消/失效后不再属于“当前”，自动移出。
+        // 3) 生命周期型：当前任务与约定，只保留尚未结束事项。
         const taskSheet = sheets.find(s => s?.name === '当前任务与约定表');
         if (taskSheet?.getContent) {
             const valueSheet = taskSheet.getContent(true);
@@ -109,16 +166,21 @@ function normalizeWorldMemorySheets(referencePiece) {
                     })];
                     if (cleaned.length !== valueSheet.length) {
                         saveValueSheet(taskSheet, cleaned);
-                        console.log(`[World Memory][normalize] 已结束任务已移出当前任务表: ${valueSheet.length - cleaned.length} 行`);
+                        console.log(`[World Memory][normalize] 已结束任务已移出: ${valueSheet.length - cleaned.length} 行`);
                     }
                 }
             }
         }
 
-        if (changed) console.log('[World Memory][normalize] 轻量整理完成');
+        // 4) 实体档案型：人物表不在代码层强行合并语义字段。
+        // 同名人物是否同一实体、关系/状态如何合并，交给 AI 按已有行 update，避免误伤同名角色。
+
+        // 5) 事件归档型：历史事件不在代码层按文本相似度强制合并。
+        // 是否属于同一事件链需要语义判断，交给提示词控制“优先 update、减少流水账”。
+
+        if (changed) console.log('[World Memory][normalize] 按表格类型的轻量整理完成');
     } catch (error) {
-        // 整理是兜底层，绝不能因为这里失败而破坏已经跑通的自动填表。
-        console.warn('[World Memory][normalize] 轻量整理失败，已跳过，不影响本轮写表:', error);
+        console.warn('[World Memory][normalize] 整理失败，已跳过，不影响本轮写表:', error);
     }
 }
 
@@ -140,8 +202,6 @@ export async function TableTwoStepSummary(mode) {
     const todoChats = todoPiece.mes;
     console.log(`[World Memory][${mode}] 待填表内容长度:`, todoChats?.length ?? 0);
 
-    // 自动模式直接后台执行。原代码在自动触发时也等待 newPopupConfirm，
-    // 会造成“只有手动点击整理才真正请求填表”的表现。
     if (mode !== 'manual') {
         try {
             const result = await manualSummaryChat(todoChats, 'dont_remind_active');
@@ -178,8 +238,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
         return false;
     }
 
-    // 只有手动重做时才撤销已有表格版本。
-    // 自动填表绝不能先 undo，否则会把上一轮已经正确保存的状态回滚。
     const isAutoMode = confirmResult === 'dont_remind_active';
     if (!isAutoMode && initialPiece.hash_sheets && Object.keys(initialPiece.hash_sheets).length > 0) {
         console.log('[Memory Enhancement] 手动立即填表：检测到表格中有数据，执行恢复操作...');
@@ -211,10 +269,8 @@ export async function manualSummaryChat(todoChats, confirmResult) {
 
     console.log('[World Memory] 独立填表增量更新结果:', r);
     if (r === 'success') {
-        // 先让核心链完成，再执行可失败、可跳过的轻量整理。
         normalizeWorldMemorySheets(referencePiece);
         await USER.saveChat();
-        // 自动模式不整页 reload，避免每轮生成后强制刷新页面；手动模式保留原行为。
         if (!isAutoMode) reloadCurrentChat();
         return true;
     }
