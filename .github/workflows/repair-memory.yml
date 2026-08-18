@@ -13,83 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply v7 write protocol repair
+      - name: Fix silent main API loading toast null access
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          # 不改 index.js / runtime / core，只修默认写表协议与配置迁移。
-          p = Path('data/pluginSetting.js')
+          p = Path('scripts/settings/standaloneAPI.js')
           s = p.read_text(encoding='utf-8')
-          s = s.replace('updateIndex:6,', 'updateIndex:7,', 1)
-
-          new_prompt = r'''# dataTable 世界状态记忆
-## 用途
-- 以下表格保存当前世界状态与重要长期记忆，是生成下文的重要参考。
-- 每次回复正文完成后，必须检查六张表是否因本轮剧情产生了可确认的变化。
-- 表名格式：[tableIndex:表名]；列名格式：[colIndex:列名]；行号格式：[rowIndex]。
-
-{{tableData}}
-
-# 增删改 dataTable 操作方法
-如需修改，必须在<tableEdit>标签中使用 JavaScript 函数写法，并且函数必须放在<!-- -->注释中。
-
-## 操作规则
-<OperateRule>
-insertRow(tableIndex:number, data:{[colIndex:number]:string|number})
-deleteRow(tableIndex:number, rowIndex:number)
-updateRow(tableIndex:number, rowIndex:number, data:{[colIndex:number]:string|number})
-</OperateRule>
-
-# 六表规则
-- 0 当前状态表：原则上只保留一行。日期/时间/地点/当前场景人物变化时优先 updateRow；空表时 insertRow。
-- 1 角色状态表：原则上只保留一行。修为/灵力/神识/身体状态/灵石/钱财/技能术法/擅长等当前值发生变化时 updateRow；旧状态被新状态替代，不追加流水。
-- 2 背包表：同一物品只保留一行。新物品 insertRow；数量/状态变化 updateRow；明确失去或数量归零 deleteRow。
-- 3 当前任务与约定表：新任务/约定 insertRow；进度/期限/状态变化 updateRow；完成/失败/取消/失效 deleteRow。只有重大结果才另外记入历史。
-- 4 人物表：同一人物只保留一行。新重要人物 insertRow；身份/修为/关系/当前状态/重要信息变化 updateRow；普通路人不要长期记录。
-- 5 历史事件表：只记录会影响后续的重要既成事件；只在确有重大新事件时 insertRow，普通日常不记录。
-
-# 重要原则
-- 每轮都必须逐表检查 0→1→2→3→4→5，不能因为已有数据就停止更新。
-- 已有同一对象时优先 updateRow，禁止重复 insert。
-- 只记录已确认事实；不知道的内容留空，不猜测、不补设定、不回滚既成事实。
-- 单元格并列内容使用 / 分隔，避免逗号。
-- 只有完全没有任何表格变化时，才可以不输出<tableEdit>。
-
-# 输出格式示例
-<tableEdit>
-<!--
-insertRow(0, {0:"苍玄历12500年03月16日", 1:"14:20", 2:"青石城>悦来客栈", 3:"林川/赵岳"})
-insertRow(1, {0:"林川", 1:"人族", 2:"23", 3:"炼气七层", 4:"火灵根", 5:"72/100", 6:"正常", 7:"左臂轻伤", 8:"下品36", 9:"铜钱120文", 10:"火弹术", 11:"近身剑斗", 12:""})
-insertRow(2, {0:"回气丹", 1:"丹药", 2:"3", 3:"下品", 4:"恢复灵力"})
-updateRow(1, 0, {5:"60/100", 8:"下品35"})
-insertRow(4, {0:"赵岳", 1:"青云门外门弟子", 2:"炼气八层", 3:"右眉有疤", 4:"好强/记仇", 5:"敌对", 6:"右肩受伤", 7:"与林川在悦来客栈冲突"})
--->
-</tableEdit>'''
-
-          pattern = r'message_template: `.*?`,\n    /\*\*\n     \* ===========================\n     \* 推送表格设置'
-          repl = 'message_template: `' + new_prompt + '`,\n    /**\n     * ===========================\n     * 推送表格设置'
-          s2, n = re.subn(pattern, repl, s, count=1, flags=re.S)
-          if n != 1:
-              raise SystemExit('message_template replace failed')
-          p.write_text(s2, encoding='utf-8')
-
-          p = Path('scripts/settings/userExtensionSetting.js')
-          s = p.read_text(encoding='utf-8')
-          anchor = '''    if (USER.tableBaseSetting.updateIndex < 6) {\n        USER.tableBaseSetting.message_template = USER.tableBaseDefaultSettings.message_template;\n        USER.tableBaseSetting.refresh_system_message_template = USER.tableBaseDefaultSettings.refresh_system_message_template;\n        USER.tableBaseSetting.refresh_user_message_template = USER.tableBaseDefaultSettings.refresh_user_message_template;\n        USER.tableBaseSetting.tableStructure = JSON.parse(JSON.stringify(USER.tableBaseDefaultSettings.tableStructure));\n        initTableStructureToTemplate();\n        USER.tableBaseSetting.updateIndex = 6;\n        USER.saveSettings();\n        console.log('[World Memory] 已迁移到六表动态记忆配置 v6');\n    }\n'''
-          if anchor not in s:
-              raise SystemExit('v6 migration anchor not found')
-          block = anchor + '''    if (USER.tableBaseSetting.updateIndex < 7) {\n        USER.tableBaseSetting.message_template = USER.tableBaseDefaultSettings.message_template;\n        USER.tableBaseSetting.refresh_system_message_template = USER.tableBaseDefaultSettings.refresh_system_message_template;\n        USER.tableBaseSetting.refresh_user_message_template = USER.tableBaseDefaultSettings.refresh_user_message_template;\n        USER.tableBaseSetting.tableStructure = JSON.parse(JSON.stringify(USER.tableBaseDefaultSettings.tableStructure));\n        initTableStructureToTemplate();\n        USER.tableBaseSetting.updateIndex = 7;\n        USER.saveSettings();\n        console.log('[World Memory] 已迁移到六表写表协议 v7');\n    }\n'''
-          s = s.replace(anchor, block, 1)
+          old = '        loadingToast.close();\n        return suspended ? \'suspended\' : response;'
+          new = '        loadingToast?.close();\n        loadingToast = null;\n        return suspended ? \'suspended\' : response;'
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f'expected 2 unguarded close sites, found {count}')
+          s = s.replace(old, new)
           p.write_text(s, encoding='utf-8')
           PY
 
-          node --check data/pluginSetting.js
-          node --check scripts/settings/userExtensionSetting.js
+          node --check scripts/settings/standaloneAPI.js
 
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add data/pluginSetting.js scripts/settings/userExtensionSetting.js
-          git commit -m '强化六表自动写入协议 v7' || exit 0
+          git add scripts/settings/standaloneAPI.js
+          git commit -m '修复静默自动填表主API空对象错误' || exit 0
           git push
