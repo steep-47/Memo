@@ -1,5 +1,6 @@
 import './index.js';
 import './scripts/runtime/memoryContentRules.js';
+import './scripts/runtime/sheetRegistryGuard.js';
 import './scripts/runtime/singleApiRuntime.js';
 import './scripts/ui/pinchZoom.js';
 import './scripts/ui/personTableSplit.js';
