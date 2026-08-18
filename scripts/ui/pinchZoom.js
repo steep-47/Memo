@@ -19,6 +19,20 @@ function findArea(target) {
     return target?.closest?.('#contentContainer.memory-table-pinch-area') || null;
 }
 
+function keepDrawerFilled(area) {
+    // zoom 会改变表格视觉尺寸。数据面板不能跟着缩短，否则底部会露出聊天正文。
+    // 让横线以下区域至少占满当前抽屉剩余的可视高度；内容更高时仍可自然撑开/滚动。
+    const drawer = area?.closest?.('#table_drawer_content');
+    if (!drawer) return;
+
+    const areaRect = area.getBoundingClientRect();
+    const drawerRect = drawer.getBoundingClientRect();
+    const remaining = Math.max(0, drawerRect.bottom - areaRect.top);
+
+    area.style.minHeight = `${remaining}px`;
+    area.style.boxSizing = 'border-box';
+}
+
 function applyScale(area, scale) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer) return;
@@ -26,6 +40,7 @@ function applyScale(area, scale) {
     currentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
     tableContainer.style.zoom = String(currentScale);
     tableContainer.dataset.memoryPinchScale = String(currentScale);
+    keepDrawerFilled(area);
 }
 
 function onTouchStart(event) {
@@ -40,6 +55,7 @@ function onTouchStart(event) {
     const tableContainer = area.querySelector('#tableContainer');
     const savedScale = Number(tableContainer?.dataset?.memoryPinchScale || currentScale || 1);
     startScale = Number.isFinite(savedScale) ? savedScale : 1;
+    keepDrawerFilled(area);
 }
 
 function onTouchMove(event) {
@@ -56,9 +72,15 @@ function onTouchMove(event) {
 
 function finishPinch(event) {
     if (!event || event.touches.length < 2) {
+        if (activeArea) keepDrawerFilled(activeArea);
         activeArea = null;
         startDistance = 0;
     }
+}
+
+function refreshVisibleAreaHeight() {
+    const area = document.querySelector('#contentContainer.memory-table-pinch-area');
+    if (area) keepDrawerFilled(area);
 }
 
 // capture=true：尽量先于 SillyTavern 上层触摸处理器收到事件。
@@ -66,5 +88,6 @@ document.addEventListener('touchstart', onTouchStart, { passive: true, capture: 
 document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
 document.addEventListener('touchend', finishPinch, { passive: true, capture: true });
 document.addEventListener('touchcancel', finishPinch, { passive: true, capture: true });
+window.addEventListener('resize', refreshVisibleAreaHeight, { passive: true });
 
 console.log('[世界状态记忆表格] 表格双指缩放模块已加载');
