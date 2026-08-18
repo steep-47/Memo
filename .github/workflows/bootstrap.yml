@@ -1,0 +1,50 @@
+name: Build private world memory plugin
+
+on:
+  push:
+    paths:
+      - bootstrap.py
+      - .github/workflows/bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore verified upstream source
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          curl -L --fail --retry 3 "https://codeload.github.com/muyoou/st-memory-enhancement/tar.gz/3ae69c9fe4c8cc361560188df667ab713be82828" -o "$tmp/src.tar.gz"
+          tar -xzf "$tmp/src.tar.gz" -C "$tmp"
+          src="$(find "$tmp" -maxdepth 1 -type d -name 'st-memory-enhancement-*' | head -1)"
+          cp -a "$src"/. .
+      - name: Apply private adaptation
+        run: python bootstrap.py
+      - name: Validate without touching core runtime
+        run: |
+          set -euo pipefail
+          node --check index.js
+          node --check data/pluginSetting.js
+          node --check data/profile_prompts.js
+          node --check utils/tableSorting.js
+          python -m json.tool manifest.json >/dev/null
+          test -f core/table/sheet.js
+          test -f scripts/runtime/absoluteRefresh.js
+          test -f scripts/runtime/separateTableUpdate.js
+      - name: Remove bootstrap files and commit complete plugin
+        run: |
+          set -euo pipefail
+          rm -f bootstrap.py .github/workflows/bootstrap.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "构建世界状态记忆插件" || exit 0
+          git push
