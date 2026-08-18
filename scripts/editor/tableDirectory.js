@@ -79,8 +79,6 @@ function endDrag(event) {
 }
 
 function ensurePanel() {
-    // SillyTavern 会重绘/替换扩展面板。不能只依赖模块内 initialized 状态，
-    // 每次打开目录前都确认实际 DOM 仍然存在。
     const existing = document.getElementById('table_directory_panel');
     if (existing) {
         panelElement = existing;
@@ -101,9 +99,6 @@ function togglePanel(event) {
         return;
     }
 
-    // 表格管理器可能运行在原生 dialog / SillyTavern popup 顶层。
-    // body 子节点即使 z-index 很高，也可能被 top-layer dialog 完全盖住。
-    // 点击时把目录面板迁移到当前管理器所在的弹窗内部，确保可见。
     const button = event?.currentTarget || event?.target?.closest?.('#table_directory_button');
     const manager = button?.closest?.('#table_manager_container');
     const popupHost = manager?.closest?.('dialog, .popup, .popup-container, .popup_content, .popup-content') || manager;
@@ -114,6 +109,7 @@ function togglePanel(event) {
     panel.classList.toggle('open');
     if (panel.classList.contains('open')) {
         refreshTableDirectory();
+        if (isMobileView()) searchInput?.blur();
     }
 }
 
@@ -135,8 +131,13 @@ function jumpToResult(result) {
         refreshTableDirectory();
         return;
     }
-    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-    highlightElement(target);
+
+    // 手机端目录是底部抽屉，先收起再滚动，避免目录遮住目标表格。
+    if (isMobileView()) closePanel();
+    requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        highlightElement(target);
+    });
 }
 
 function createResultItem(result) {
@@ -324,7 +325,6 @@ function createPanel() {
 }
 
 export function initTableDirectoryControls() {
-    // 使用命名空间重新绑定，兼容插件热重载/抽屉重新创建，且不会重复绑定。
     if (!initialized) initialized = true;
     $(document)
         .off('click.memoTableDirectory', '#table_directory_button')
