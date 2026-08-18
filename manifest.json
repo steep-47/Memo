@@ -3,7 +3,7 @@
   "loading_order":100,
   "requires":[],
   "optional":[],
-  "js":"index.js",
+  "js":"loader.js",
   "css":"assets/styles/simple-ui.css",
   "author":"private",
   "version":"2.2.18-world.1"
