@@ -44,6 +44,16 @@ function buildTemplateDrawer(content) {
     return drawer;
 }
 
+function setControlsCollapsed(collapsed) {
+    tableDrawerContent.toggleClass('table-controls-collapsed', collapsed);
+    const button = $('#table_controls_collapse_button');
+    const icon = button.find('i');
+    icon.toggleClass('fa-chevron-up', !collapsed);
+    icon.toggleClass('fa-chevron-down', collapsed);
+    button.attr('aria-expanded', String(!collapsed));
+    button.attr('title', collapsed ? '展开控制区' : '折叠控制区');
+}
+
 function bindControlsCollapse() {
     const button = $('#table_controls_collapse_button');
     if (!button.length || button.data('memory-collapse-bound')) return;
@@ -52,13 +62,7 @@ function bindControlsCollapse() {
     button.on('click', function(event) {
         event.preventDefault();
         event.stopPropagation();
-
-        const collapsed = tableDrawerContent.toggleClass('table-controls-collapsed').hasClass('table-controls-collapsed');
-        const icon = button.find('i');
-        icon.toggleClass('fa-chevron-up', !collapsed);
-        icon.toggleClass('fa-chevron-down', collapsed);
-        button.attr('aria-expanded', String(!collapsed));
-        button.attr('title', collapsed ? '展开控制区' : '折叠控制区');
+        setControlsCollapsed(!tableDrawerContent.hasClass('table-controls-collapsed'));
     });
 }
 
@@ -87,7 +91,6 @@ export async function initAppHeaderTableDrawer() {
         const header = $(`<div></div>`).append($(`<div style="margin: 10px 0;"></div>`).append(inlineDrawerHeaderContent));
         settingContainer = header.append($('.memory_enhancement_container').find('#memory_enhancement_settings_inline_drawer_content'));
 
-        // 模板入口紧跟“上下文层数”所在的常用设置行，默认折叠。
         const templateDrawer = buildTemplateDrawer(tableEditDom);
         const contextRow = settingContainer.find('#separateReadContextLayers').closest('.checkbox_label');
         if (contextRow.length) {
@@ -105,6 +108,8 @@ export async function initAppHeaderTableDrawer() {
 
     updateButtonStates(databaseButton);
     bindControlsCollapse();
+    // 数据控制区默认折叠；需要时点击右上角箭头展开。
+    setControlsCollapsed(true);
 
     $('#tableUpdateTag').click(function() {
         $('#extensions_details').trigger('click');
