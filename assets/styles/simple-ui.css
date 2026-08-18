@@ -95,14 +95,20 @@ label[for="dataTable_tableSetting_triggerSendDepth"],
     opacity: .68;
 }
 
-/* 横线以下为表格查看区：单指正常滚动，双指由 pinchZoom.js 接管。 */
+/* 横线以下为六表整体查看区：单指整体横移，双指整体缩放。 */
 #contentContainer.memory-table-pinch-area {
     touch-action: pan-x pan-y;
-    overflow: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
 }
 #contentContainer.memory-table-pinch-area #tableContainer {
     transform-origin: top left;
+    will-change: transform;
+}
+
+/* 横向移动统一交给整体画布，隐藏各张表自己的横向滚动条。 */
+#contentContainer.memory-table-pinch-area *::-webkit-scrollbar {
+    height: 0 !important;
 }
 
 @media screen and (max-width: 768px) {
