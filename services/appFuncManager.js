@@ -7,7 +7,14 @@ import { power_user, applyPowerUserSettings, getContextSettings, loadPowerUserSe
 import { LoadLocal, SaveLocal, LoadLocalBool } from '/scripts/f-localStorage.js';
 import { getCurrentLocale } from '/scripts/i18n.js';
 
-
+// 原插件在多处把安装目录写死为 third-party/st-memory-enhancement。
+// 自用仓库名为 Memo，因此只在应用函数出口做兼容重写，避免改动核心表格与运行链。
+function renderMemoExtensionTemplateAsync(path, name, data = {}, sanitize = true, localize = true) {
+    const compatiblePath = typeof path === 'string'
+        ? path.replace('third-party/st-memory-enhancement', 'third-party/Memo')
+        : path;
+    return renderExtensionTemplateAsync(compatiblePath, name, data, sanitize, localize);
+}
 
 /**
  * appManager 对象，用于集中管理和暴露常用的应用程序功能和库。
@@ -34,7 +41,7 @@ const applicationFunctionManager = {
     // scripts/extensions.js 模块
     extension_settings,
     getContext,
-    renderExtensionTemplateAsync,
+    renderExtensionTemplateAsync: renderMemoExtensionTemplateAsync,
 
     // scripts/popup.js 模块
     POPUP_TYPE,
