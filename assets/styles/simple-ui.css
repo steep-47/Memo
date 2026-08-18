@@ -91,7 +91,7 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     height: 0 !important;
 }
 
-/* #1 角色状态表：手机端把宽字段拆成三段显示。原表仍保留在 DOM 中供插件逻辑使用。 */
+/* #1 角色状态表：仅改变展示层。每个人物独立成块，块内仍按三组字段显示。 */
 .memory-role-status-source {
     display: none !important;
 }
@@ -99,9 +99,22 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 3px;
     width: 100%;
     margin: 0 0 6px;
+}
+.memory-role-status-character-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    width: 100%;
+    padding: 0 0 8px;
+    margin: 0 0 8px;
+    border-bottom: 1px solid rgba(128, 128, 128, .22);
+}
+.memory-role-status-character-block:last-child {
+    margin-bottom: 0;
+    border-bottom: 0;
 }
 .memory-role-status-three-rows table {
     width: auto !important;
