@@ -1,102 +1,114 @@
 @import url("./style.css");
 
-/* WORLD-MEMORY-SIMPLE-UI
-   自用简化模式：仅隐藏高级设置，不删除 DOM、不改变配置值、不影响底层逻辑。 */
+/* WORLD-MEMORY-SIMPLE-UI：仅调整界面显示，不删除底层能力。 */
 
-/* 保留启用插件；隐藏调试开关 */
-.checkbox_label:has(> #table_switch_debug_mode) {
-    display: none !important;
+/* 自用版不显示旧更新提示和开发日志入口。 */
+#inline_drawer_header_content,
+#table_debug_log_button { display: none !important; }
+
+/* 设置页铺满视口，避免下方露出聊天正文。 */
+.memory_enhancement_container,
+.memory_enhancement_settings,
+.memory_enhancement_settings > .inline-drawer,
+.memory_enhancement_settings > .inline-drawer > .inline-drawer-content,
+#memory_enhancement_settings_inline_drawer_content {
+    min-height: calc(100dvh - 100px);
+    box-sizing: border-box;
 }
 
-/* 内部协议已经固定：消息模板、注入方式、注入深度不再日常暴露 */
+/* 保留总开关，隐藏开发调试开关。 */
+.checkbox_label:has(> #table_switch_debug_mode) { display: none !important; }
+
+/* 固定的内部协议不在日常界面暴露。 */
 h4[data-i18n="Message template"],
 div:has(> #dataTable_message_template),
-div:has(> #dataTable_injection_mode) {
-    display: none !important;
-}
-
-/* 自动记录已固定为“收到消息后再独立填表” */
+div:has(> #dataTable_injection_mode),
 label[for="fill_table_time"],
 #fill_table_time,
-#reply_options {
-    display: none !important;
-}
+#reply_options { display: none !important; }
 
-/* 独立填表常用区：隐藏固定项/高级项，只留立即填表 + 上下文层数 */
+/* 独立填表只保留手动触发与上下文层数。 */
 #step_by_step_options > .checkbox_label:first-child > #step_by_step_use_main_api,
 #step_by_step_options > .checkbox_label:first-child > #step_by_step_use_main_api + span,
 #step_by_step_options > .checkbox_label:first-child > label[for="separateReadLorebook"],
 #step_by_step_options > .checkbox_label:first-child > #separateReadLorebook,
 #step_by_step_options > .checkbox_label:first-child > small,
 .checkbox_label:has(> #confirm_before_execution),
-.inline-drawer:has(#custom_api_url) {
-    display: none !important;
-}
+.inline-drawer:has(#custom_api_url) { display: none !important; }
 
-/* 独立填表 JSON 协议属于内部核心配置，避免误改造成记录失效 */
 #step_by_step_user_prompt,
 label[for="step_by_step_user_prompt"],
 label[for="step_by_step_user_prompt"] ~ .toggle-description,
-#reset_step_by_step_user_prompt {
-    display: none !important;
-}
-#step_by_step_options > div:has(#step_by_step_user_prompt) {
-    display: none !important;
-}
+#reset_step_by_step_user_prompt,
+#step_by_step_options > div:has(#step_by_step_user_prompt) { display: none !important; }
 
-/* 设置页中的整套整理高级参数隐藏；表格管理页仍保留“表格整理”按钮 */
-.inline-drawer:has(#rebuild--select) {
-    display: none !important;
-}
+/* 表格整理高级参数和前端渲染高级项继续隐藏。 */
+.inline-drawer:has(#rebuild--select),
+.flex1.wide100p:has(#show_settings_in_extension_menu) { display: none !important; }
 
-/* 前端渲染/GPU/穿插等显示设置非核心，自用版隐藏整组 */
-.flex1.wide100p:has(#show_settings_in_extension_menu) {
-    display: none !important;
-}
-
-/* 剩余常用控件排版 */
+/* 自动记忆常用区。 */
 #step_by_step_options::before {
-    content: '自动记录已启用 · 一般无需设置';
+    content: '自动记录已启用 · AI 回复后自动维护记忆';
     display: block;
     margin: 6px 0 8px;
     opacity: .72;
     font-size: .9em;
 }
-
 #step_by_step_options > .checkbox_label:first-child {
     display: flex !important;
     flex-wrap: wrap !important;
     align-items: center !important;
     gap: 8px 10px !important;
-    margin: 8px 0 12px !important;
+    margin: 8px 0 4px !important;
 }
 #step_by_step_options > .checkbox_label:first-child > label[for="separateReadContextLayers"] {
     margin-left: 0 !important;
     white-space: nowrap !important;
 }
-#trigger_step_by_step_button {
-    margin-left: 0 !important;
+#separateReadContextLayers { width: 64px !important; }
+
+/* 将“立即填表”显示成更直观的“手动更新记忆”。 */
+#trigger_step_by_step_button { margin-left: 0 !important; }
+#trigger_step_by_step_button > span,
+#trigger_step_by_step_button > a { font-size: 0 !important; }
+#trigger_step_by_step_button > span::after,
+#trigger_step_by_step_button > a::after {
+    content: '手动更新记忆';
+    font-size: 14px;
 }
-#separateReadContextLayers {
-    width: 64px !important;
+
+/* 说明按钮用途，避免与表格整理混淆。 */
+#step_by_step_options > .checkbox_label:first-child::after {
+    content: '漏记时使用：立即读取最近上下文并补充更新六张记忆表。';
+    flex-basis: 100%;
+    display: block;
+    margin-top: 2px;
+    font-size: .82em;
+    line-height: 1.45;
+    opacity: .68;
 }
 
 @media screen and (max-width: 768px) {
+    .memory_enhancement_container,
+    .memory_enhancement_settings,
+    .memory_enhancement_settings > .inline-drawer,
+    .memory_enhancement_settings > .inline-drawer > .inline-drawer-content,
+    #memory_enhancement_settings_inline_drawer_content {
+        min-height: calc(100dvh - 64px);
+    }
     #step_by_step_options {
         padding-left: 0 !important;
         width: 100% !important;
     }
     #step_by_step_options > .checkbox_label:first-child {
         display: grid !important;
-        grid-template-columns: minmax(120px, 1fr) auto 72px !important;
+        grid-template-columns: minmax(132px, 1fr) auto 64px !important;
         gap: 8px !important;
         width: 100% !important;
     }
     #trigger_step_by_step_button {
-        min-width: 120px !important;
+        min-width: 132px !important;
         justify-content: center !important;
     }
-    #step_by_step_options > .checkbox_label:first-child > label[for="separateReadContextLayers"] {
-        white-space: nowrap !important;
-    }
+    #step_by_step_options > .checkbox_label:first-child::after { grid-column: 1 / -1; }
 }
