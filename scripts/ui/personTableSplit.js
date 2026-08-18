@@ -42,8 +42,14 @@ function sourceSignature(source) {
         .join('\u001e');
 }
 
-function appendVirtualCell(rowClone, isHeaderRow, text = '') {
-    const cell = document.createElement(isHeaderRow ? 'th' : 'td');
+function appendVirtualCell(rowClone, isHeaderRow, text = '', templateCell = null) {
+    // 不能创建一个“裸”th/td，否则 SillyTavern 原表格的边框/单元格类不会继承，
+    // 会出现“别名/称呼”有文字但没有线框的问题。
+    const cell = templateCell
+        ? templateCell.cloneNode(true)
+        : document.createElement(isHeaderRow ? 'th' : 'td');
+
+    cell.removeAttribute('id');
     cell.textContent = isHeaderRow ? text : '';
     rowClone.appendChild(cell);
 }
@@ -71,6 +77,7 @@ function cloneColumns(source, descriptors, indexColumn = -1, label = '', headerR
             const rowClone = row.cloneNode(false);
             const cells = Array.from(row.cells || []);
             const isHeaderRow = row === headerRow;
+            const templateCell = cells.find((cell, index) => index !== indexColumn && !!cell) || null;
 
             if (indexColumn >= 0 && cells[indexColumn]) {
                 rowClone.appendChild(cells[indexColumn].cloneNode(true));
@@ -78,7 +85,7 @@ function cloneColumns(source, descriptors, indexColumn = -1, label = '', headerR
 
             for (const descriptor of descriptors) {
                 if (descriptor.virtual) {
-                    appendVirtualCell(rowClone, isHeaderRow, descriptor.name);
+                    appendVirtualCell(rowClone, isHeaderRow, descriptor.name, templateCell);
                     continue;
                 }
 
