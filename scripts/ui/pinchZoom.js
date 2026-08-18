@@ -1,13 +1,21 @@
-// 仅负责数据页横线以下记忆表格的移动端双指缩放。
+// 数据页横线以下：双指缩放 + 单指整体横向拖动。
 // 不修改表格数据，不依赖核心记忆逻辑。
 
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2.0;
+const HORIZONTAL_THRESHOLD = 8;
 
 let activeArea = null;
 let startDistance = 0;
 let startScale = 1;
 let currentScale = 1;
+
+let panArea = null;
+let panStartX = 0;
+let panStartY = 0;
+let panStartOffset = 0;
+let panOffset = 0;
+let horizontalPanning = false;
 
 function distance(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -20,8 +28,6 @@ function findArea(target) {
 }
 
 function keepDrawerFilled(area) {
-    // zoom 会改变表格视觉尺寸。数据面板不能跟着缩短，否则底部会露出聊天正文。
-    // 让横线以下区域至少占满当前抽屉剩余的可视高度；内容更高时仍可自然撑开/滚动。
     const drawer = area?.closest?.('#table_drawer_content');
     if (!drawer) return;
 
@@ -33,6 +39,29 @@ function keepDrawerFilled(area) {
     area.style.boxSizing = 'border-box';
 }
 
+function getMaxPan(area) {
+    const tableContainer = area?.querySelector?.('#tableContainer');
+    if (!tableContainer) return 0;
+
+    // scrollWidth 会把各张表内部超出的宽度也计算进去。
+    const visualContentWidth = tableContainer.scrollWidth * currentScale;
+    const viewportWidth = area.clientWidth;
+    const visualOverflow = Math.max(0, visualContentWidth - viewportWidth);
+
+    // transform 在 zoom 后一起生效，换算回未缩放坐标。
+    return currentScale > 0 ? visualOverflow / currentScale : visualOverflow;
+}
+
+function applyPan(area, offset) {
+    const tableContainer = area?.querySelector?.('#tableContainer');
+    if (!tableContainer) return;
+
+    const maxPan = getMaxPan(area);
+    panOffset = Math.max(-maxPan, Math.min(0, offset));
+    tableContainer.style.transform = `translate3d(${panOffset}px, 0, 0)`;
+    tableContainer.dataset.memoryPanX = String(panOffset);
+}
+
 function applyScale(area, scale) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer) return;
@@ -40,54 +69,101 @@ function applyScale(area, scale) {
     currentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
     tableContainer.style.zoom = String(currentScale);
     tableContainer.dataset.memoryPinchScale = String(currentScale);
+
+    // 缩放后重新限制当前横移量，避免出现大片空白。
+    applyPan(area, panOffset);
     keepDrawerFilled(area);
 }
 
 function onTouchStart(event) {
-    if (event.touches.length !== 2) return;
-
     const area = findArea(event.target);
     if (!area) return;
 
-    activeArea = area;
-    startDistance = distance(event.touches);
+    if (event.touches.length === 2) {
+        activeArea = area;
+        startDistance = distance(event.touches);
 
-    const tableContainer = area.querySelector('#tableContainer');
-    const savedScale = Number(tableContainer?.dataset?.memoryPinchScale || currentScale || 1);
-    startScale = Number.isFinite(savedScale) ? savedScale : 1;
-    keepDrawerFilled(area);
+        const tableContainer = area.querySelector('#tableContainer');
+        const savedScale = Number(tableContainer?.dataset?.memoryPinchScale || currentScale || 1);
+        startScale = Number.isFinite(savedScale) ? savedScale : 1;
+
+        horizontalPanning = false;
+        panArea = null;
+        keepDrawerFilled(area);
+        return;
+    }
+
+    if (event.touches.length === 1) {
+        panArea = area;
+        panStartX = event.touches[0].clientX;
+        panStartY = event.touches[0].clientY;
+
+        const tableContainer = area.querySelector('#tableContainer');
+        const savedPan = Number(tableContainer?.dataset?.memoryPanX || panOffset || 0);
+        panStartOffset = Number.isFinite(savedPan) ? savedPan : 0;
+        horizontalPanning = false;
+    }
 }
 
 function onTouchMove(event) {
-    if (!activeArea || event.touches.length !== 2 || startDistance <= 0) return;
+    if (event.touches.length === 2 && activeArea && startDistance > 0) {
+        const nextDistance = distance(event.touches);
+        const ratio = nextDistance / startDistance;
+        applyScale(activeArea, startScale * ratio);
 
-    const nextDistance = distance(event.touches);
-    const ratio = nextDistance / startDistance;
-    applyScale(activeArea, startScale * ratio);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
 
-    // 只有双指缩放时阻止上层页面接管；单指滚动不受影响。
+    if (event.touches.length !== 1 || !panArea) return;
+
+    const x = event.touches[0].clientX;
+    const y = event.touches[0].clientY;
+    const dx = x - panStartX;
+    const dy = y - panStartY;
+
+    if (!horizontalPanning) {
+        if (Math.abs(dx) < HORIZONTAL_THRESHOLD && Math.abs(dy) < HORIZONTAL_THRESHOLD) return;
+
+        // 只有明显的横向手势才接管；上下滑仍交给页面正常滚动。
+        if (Math.abs(dx) <= Math.abs(dy)) {
+            panArea = null;
+            return;
+        }
+        horizontalPanning = true;
+    }
+
+    applyPan(panArea, panStartOffset + dx / currentScale);
     event.preventDefault();
     event.stopPropagation();
 }
 
-function finishPinch(event) {
+function finishTouch(event) {
     if (!event || event.touches.length < 2) {
         if (activeArea) keepDrawerFilled(activeArea);
         activeArea = null;
         startDistance = 0;
     }
+
+    if (!event || event.touches.length === 0) {
+        panArea = null;
+        horizontalPanning = false;
+    }
 }
 
-function refreshVisibleAreaHeight() {
+function refreshVisibleArea() {
     const area = document.querySelector('#contentContainer.memory-table-pinch-area');
-    if (area) keepDrawerFilled(area);
+    if (!area) return;
+    keepDrawerFilled(area);
+    applyPan(area, panOffset);
 }
 
-// capture=true：尽量先于 SillyTavern 上层触摸处理器收到事件。
+// capture=true：优先于每张表自身的横向滚动处理器接管手势。
 document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
 document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
-document.addEventListener('touchend', finishPinch, { passive: true, capture: true });
-document.addEventListener('touchcancel', finishPinch, { passive: true, capture: true });
-window.addEventListener('resize', refreshVisibleAreaHeight, { passive: true });
+document.addEventListener('touchend', finishTouch, { passive: true, capture: true });
+document.addEventListener('touchcancel', finishTouch, { passive: true, capture: true });
+window.addEventListener('resize', refreshVisibleArea, { passive: true });
 
-console.log('[世界状态记忆表格] 表格双指缩放模块已加载');
+console.log('[世界状态记忆表格] 整体缩放与横向拖动模块已加载');
