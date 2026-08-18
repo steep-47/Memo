@@ -634,10 +634,15 @@ async function initTableView(mesId) {
         renderSheetsDOM(prevDeep);
     })
 
-    // 点击跳转按钮
-    $(document).on('click', '#table_jump_button', function () {
-        const inputVal = $('#table_jump_input').val();
-        const deep = inputVal === "" ? USER.getContext().chat.length - 1: Number(inputVal);
+    // 点击跳转按钮：按需输入历史层数，主界面不再常驻输入框
+    $(document).on('click', '#table_jump_button', async function () {
+        const inputVal = await EDITOR.callGenericPopup('跳转到历史表格', EDITOR.POPUP_TYPE.INPUT, '', { okButton: "跳转", cancelButton: "取消" });
+        if (inputVal === false || inputVal === null || inputVal === undefined || String(inputVal).trim() === '') return;
+        const deep = Number(inputVal);
+        if (!Number.isFinite(deep)) {
+            EDITOR.error("请输入有效层数")
+            return
+        }
         const { deep: prevDeep } = BASE.getLastSheetsPiece(Math.abs(deep), 20, deep < 0);
         if (prevDeep === -1) {
             EDITOR.error("没有更多的表格数据了")

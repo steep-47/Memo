@@ -5,9 +5,6 @@
     <!--            数据表-->
     <!--        </span>-->
     <!--    </h2>-->
-    <small data-i18n="managerDescription">
-        这是用于储存数据的表格。正常进行对话即可，默认无需进行任何操作即可自动更新表格。下方的"表格整理"仅为辅助手段，常规无需使用。
-    </small>
     <div id="tableEditTips"></div>
     <hr />
     <div style=" display: flex; justify-content: space-between; flex-wrap: wrap; ">
@@ -20,10 +17,6 @@
             <!--            <div style="display: flex; justify-content: center;" id="table_edit_mode_button">-->
             <!--                <i class="menu_button menu_button_icon fa-solid fa-pen" style="height: 30px; width: 30px" title="批量编辑"></i>-->
             <!--            </div>-->
-            <div style="display: flex; justify-content: center" id="table_data_statistics_button" title="查看表格数据统计"
-                data-i18n="[title]View table data statistics">
-                <i class="menu_button menu_button_icon fa-solid fa-ranking-star" style="height: 30px; width: 30px"></i>
-            </div>
             <div style="display: flex; justify-content: center" id="dataTable_history_button" title="查看表格编辑历史记录"
                 data-i18n="[title]View table edit history">
                 <i class="menu_button menu_button_icon fa-solid fa-history" style="height: 30px; width: 30px"></i>
@@ -48,10 +41,6 @@
             </div> -->
         </div>
         <div style=" display: flex; justify-content: flex-end; flex-wrap: wrap; width: fit-content; gap: 4px;">
-            <div style="display: flex; justify-content: center" id="copy_table_button">
-                <i class="menu_button menu_button_icon fa-solid fa-copy" style="height: 30px; width: 30px" title="复制表格"
-                    data-i18n="[title]Copy table"></i>
-            </div>
             <div style="display: flex; justify-content: center" id="import_table_button">
                 <i class="menu_button menu_button_icon fa-solid fa-file-import" style="height: 30px; width: 30px"
                     title="导入表格" data-i18n="[title]Import table"></i>
@@ -67,21 +56,17 @@
         </div>
     </div>
     <hr />
-    <div style="display: flex; align-items: center;">
-        <div style="display: flex; align-items: center; gap: 5px">
-            <div id="table_prev_button" title="前表">
-                <i class="menu_button menu_button_icon fa-solid">&lt; 前表</i>
+    <div style="display: flex; align-items: center; justify-content: flex-start;">
+        <div style="display: flex; align-items: center; gap: 4px;">
+            <div id="table_prev_button" title="上一表">
+                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">‹</i>
             </div>
-            <input type="number" id="table_jump_input" placeholder="层数" class="text_pole" style="width: 60px; margin: 0px 0px; padding: 2px 5px; box-sizing: border-box; text-align: center;">
-            <div id="table_jump_button" title="跳转">
-                <i class="menu_button menu_button_icon fa-solid">跳转</i>
+            <div id="table_jump_button" title="跳转到指定历史表格">
+                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 44px; height: 28px; padding: 2px 8px;">跳转</i>
             </div>
-            <div id="table_next_button" title="后表">
-                <i class="menu_button menu_button_icon fa-solid">后表 &gt;</i>
+            <div id="table_next_button" title="下一表">
+                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">›</i>
             </div>
-        </div>
-        <div id="table_indicator" style="flex: 1; text-align: center;">
-            现在是最新表格
         </div>
     </div>
     <hr />
