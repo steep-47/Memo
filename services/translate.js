@@ -26,13 +26,14 @@ updateRow(tableIndex:number, rowIndex:number, data:{[colIndex:number]:string|num
 - 1 角色状态表【快照型】：只保留一行。修为/灵力/神识/身体状态/灵石/钱财/技能术法/擅长等当前值发生变化时 updateRow；新值覆盖旧值，不保存数值流水。未知项保持原值或留空，禁止猜测。
 - 2 背包表【库存型】：核心是“当前持有量”，不是日志。同名且同类型、同状态/品质的物品视为同一库存项；再次获得时优先把数量相加后 updateRow，例如2根+2根→4根。不同品质/状态或单位不一致时不要强行合并。消耗时数量相减并 updateRow；数量归0、明确丢失/送出/耗尽时 deleteRow。新库存项才 insertRow。
 - 3 当前任务与约定表【生命周期型】：只保存尚未结束事项。新任务/约定 insertRow；同一事项进度/期限变化 updateRow；一旦完成/失败/取消/失效，直接 deleteRow，不要继续保留“已完成”状态。重大结果可另记历史。
-- 4 人物表【实体档案型】：同一人物原则上一行。新重要人物 insertRow；已有人物只 updateRow，把新的修为/身份/关系/长期状态合并进原行，而不是新增版本。当前状态只写具有持续意义的状态，如同行/受伤/失踪/被俘/已离开/下落不明；不要把站在某门口、某店内等一次性位置长期保存。普通路人不要记录。
+- 4 人物表【实体档案型】：同一人物原则上一行。人物表包含“姓名”和“别名/称呼”；昵称、外号、职位称呼、未确认姓名时的描述性称呼都可能指向已有角色。新增人物前必须综合检查姓名、别名/称呼、身份/所属、外貌特征、与玩家关系、重要信息及最近事件链；若明显是同一实体，就 update 原行并把新称呼补入“别名/称呼”，绝不能因为称呼变化而新建一行。确认正式姓名后，将正式姓名写入“姓名”，旧称呼保留在“别名/称呼”。只有确认不是已有角色时才 insertRow。当前状态只写具有持续意义的状态，如同行/受伤/失踪/被俘/已离开/下落不明；不要把站在某门口、某店内等一次性位置长期保存。普通路人不要记录。
 - 5 历史事件表【事件归档型】：只记录会影响后续的重要既成节点，不做剧情流水账。同一事件链中的连续过程优先 update 已有历史行的事件/结果，只有出现新的重大不可逆节点时才 insertRow。普通见面、问话、短暂对峙、赶路、购物等不要单独成历史。
 
 # 通用判断原则
 - 先判断“这张表是什么类型”，再决定 insert/update/delete；禁止把所有表都按追加或简单去重处理。
 - 每次独立填表都逐表检查 0→1→2→3→4→5。
 - 增加任何新行之前，必须先检查该表是否已有同一对象/同一事项/同一事件链；能 update 或合并就不要 insert。
+- 人物实体识别不能只比较“姓名字符串”；别名、外号、称呼变化不等于新角色。
 - “当前”类表只表达现在；“库存”类表表达当前数量；“实体”类表维护同一对象；“历史”类表只保留关键结果。
 - 只记录已确认事实；不知道的内容留空，不猜测、不补设定、不回滚既成事实。
 - 单元格并列内容使用 / 分隔，避免逗号。
@@ -45,14 +46,33 @@ updateRow(0, 0, {1:"08:20", 2:"清河镇>街尾"})
 updateRow(1, 0, {9:"铜钱82文"})
 updateRow(2, 3, {2:"4根"})
 deleteRow(3, 0)
-updateRow(4, 0, {6:"已离开", 7:"与陈尘发生过重要交集"})
+updateRow(4, 0, {0:"沈清荷", 1:"沈家女子/阿荷/二房少奶奶", 7:"已离开", 8:"与陈尘发生过重要交集"})
 -->
 </tableEdit>`;
 
 const STEP_BY_STEP_PROMPT = `[
-  { role: 'system', content: '你是世界状态记忆维护器。只维护六张表，不输出正文。先判断表格类型，再决定覆盖、合并、删除、更新或有限追加。必须依据已确认事实，禁止猜测。你的首要任务是维护当前有效状态，而不是不断新增记录。' },
-  { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0到5。0和1是快照型，只覆盖当前值；2是库存型，同名同类型同品质物品再次获得要把数量相加后update，消耗则相减，归0删除；3是生命周期型，事项完成/失败/取消/失效直接delete；4是实体档案型，同一人物更新原行；5是事件归档型，只保留重大节点并优先压缩同一事件链。每次insert之前先扫描已有行。只输出<tableEdit><!-- 函数调用 --></tableEdit>。若无变化输出<tableEdit><!-- --></tableEdit>。' }
+  { role: 'system', content: '你是世界状态记忆维护器。只维护六张表，不输出正文。先判断表格类型，再决定覆盖、合并、删除、更新或有限追加。人物是实体，不是名字字符串；别名、昵称、外号、职位称呼变化不能自动视为新角色。必须依据已确认事实，禁止猜测。你的首要任务是维护当前有效状态，而不是不断新增记录。' },
+  { role: 'user', content: '<已有表格>\\n$0\\n</已有表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0到5。0和1是快照型，只覆盖当前值；2是库存型，同名同类型同品质物品再次获得要把数量相加后update，消耗则相减，归0删除；3是生命周期型，事项完成/失败/取消/失效直接delete；4是实体档案型，新增人物前必须比较姓名+别名/称呼+身份+外貌+关系+重要信息+事件链，若是同一人物就update原行并补充别名，绝不能因为称呼不同而insert；5是事件归档型，只保留重大节点并优先压缩同一事件链。每次insert之前先扫描已有行。只输出<tableEdit><!-- 函数调用 --></tableEdit>。若无变化输出<tableEdit><!-- --></tableEdit>。' }
 ]`;
+
+function ensureCharacterAliasColumn(table) {
+    try {
+        if (!Array.isArray(table.tableStructure)) return false;
+        const person = table.tableStructure.find(t => t?.tableName === '人物表' || t?.tableIndex === 4);
+        if (!person || !Array.isArray(person.columns)) return false;
+        if (person.columns.includes('别名/称呼')) return false;
+        const nameIndex = person.columns.indexOf('姓名');
+        const insertAt = nameIndex >= 0 ? nameIndex + 1 : 1;
+        person.columns.splice(insertAt, 0, '别名/称呼');
+        person.note = '值得长期记忆的NPC；同一人物一行；姓名/别名/称呼共同用于识别同一实体';
+        person.insertNode = '新增前先检查姓名/别名/身份/外貌/事件链，确认不是已有实体才插入';
+        person.updateNode = '同一实体出现新姓名/昵称/外号/称呼时更新原行并补入别名；身份/修为/关系/状态/重要信息变化时更新';
+        return true;
+    } catch (error) {
+        console.warn('[World Memory][schema] 人物别名列设置迁移失败:', error);
+        return false;
+    }
+}
 
 function forceWorldMemoryWriteProtocol() {
     try {
@@ -64,6 +84,7 @@ function forceWorldMemoryWriteProtocol() {
         table.isExtensionAble = true;
         table.isAiReadTable = true;
         table.isAiWriteTable = true;
+        const schemaChanged = ensureCharacterAliasColumn(table);
 
         table.step_by_step = true;
         table.step_by_step_use_main_api = true;
@@ -73,7 +94,7 @@ function forceWorldMemoryWriteProtocol() {
         table.separateReadLorebook = false;
         table.injection_mode = 'deep_system';
         table.deep = 1;
-        table.updateIndex = Math.max(Number(table.updateIndex || 0), 11);
+        table.updateIndex = Math.max(Number(table.updateIndex || 0), 12);
 
         applicationFunctionManager.saveSettingsDebounced?.();
         console.log('[World Memory][diag] independent table update enabled', {
@@ -84,6 +105,7 @@ function forceWorldMemoryWriteProtocol() {
             use_main_api: table.step_by_step_use_main_api,
             context_layers: table.separateReadContextLayers,
             updateIndex: table.updateIndex,
+            character_alias_schema: schemaChanged ? 'migrated' : 'ready',
         });
     } catch (error) {
         console.warn('[World Memory][diag] protocol sync failed:', error);
