@@ -3,46 +3,16 @@ import { getTablePrompt, handleEditStrInMessage } from '../../index.js';
 import { replaceUserTag } from '../../utils/stringUtil.js';
 
 const MEMO_MARK = '# Memo 单API记忆维护';
-const EXPECTED_SHEETS = ['当前状态表','角色状态表','背包表','当前任务与约定表','人物表','历史事件表'];
 
 function isSingleApiMode() {
     return USER?.tableBaseSetting?.step_by_step !== true;
 }
 
-function hasSixSheets() {
-    try {
-        const names = new Set((BASE.getChatSheets?.() || []).map(sheet => sheet?.name).filter(Boolean));
-        return EXPECTED_SHEETS.every(name => names.has(name));
-    } catch (_) {
-        return false;
-    }
-}
-
-function ensureFreshChatSheets() {
-    try {
-        // 新聊天最常见情况是 chatMetadata.sheets 为空。只在完全没有聊天表格时强制建表，
-        // 绝不对已有表格的聊天执行重建，避免覆盖旧数据。
-        const contextSheets = BASE?.sheetsData?.context;
-        if (!Array.isArray(contextSheets) || contextSheets.length === 0) {
-            BASE.initHashSheet(true);
-        }
-
-        // 若上下文已有表，但缓存尚未就绪，读取一次使 Sheet 实例建立。
-        BASE.getChatSheets?.();
-        return hasSixSheets();
-    } catch (error) {
-        console.error('[Memo][single-api] 新聊天六表初始化失败:', error);
-        return false;
-    }
-}
-
 function buildPrompt() {
-    // 发送主请求前再次确认当前聊天已有六张表，解决新聊天 CHAT_CHANGED 与首轮生成的时序竞争。
-    if (!ensureFreshChatSheets()) {
-        console.warn('[Memo][single-api] 当前聊天六表尚未就绪，本轮不注入空协议');
-        return '';
-    }
-
+    // 不在这里主动初始化表格。
+    // getTablePrompt -> getReferencePiece -> getLastSheetsPiece 已经是原插件唯一的初始化入口；
+    // 新聊天没有表格时，它会通过 BASE.initHashSheet() 按模板创建一次。
+    // 单API运行链如果再次 initHashSheet(true)，会与原初始化竞争并生成重复表。
     const tableData = getTablePrompt(undefined, false);
     if (!tableData) return '';
 
@@ -82,7 +52,7 @@ function onPromptReady(eventData) {
     const prompt = buildPrompt();
     if (!prompt) return;
 
-    // 直接追加为本轮最后一条 system 指令，不再依赖旧 injection_mode/deep/message_template。
+    // 直接追加为本轮最后一条 system 指令，不依赖旧 injection_mode/deep/message_template。
     eventData.chat.push({ role: 'system', content: prompt });
     console.log('[Memo][single-api] 写表协议已直接注入主请求');
 }
@@ -95,8 +65,7 @@ async function onMessageRendered(chatId) {
     if (!chat || chat.is_user) return;
 
     try {
-        // 第一条AI回复到达时再做一次保险；此时已经有可挂载 hash_sheets 的非用户消息。
-        ensureFreshChatSheets();
+        // 这里只解析并保存主回复，绝不重新初始化模板。
         handleEditStrInMessage(chat);
         await USER.saveChat?.();
         BASE.refreshContextView?.();
@@ -106,14 +75,7 @@ async function onMessageRendered(chatId) {
     }
 }
 
-function onChatChanged() {
-    // 新聊天打开后预热六表。已有表的聊天不会重建。
-    setTimeout(ensureFreshChatSheets, 0);
-    setTimeout(ensureFreshChatSheets, 150);
-}
-
 APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
-APP.eventSource.on(APP.event_types.CHAT_CHANGED, onChatChanged);
 
-console.log('[Memo] 单API专用运行链已加载（含新聊天六表初始化与显式保存）');
+console.log('[Memo] 单API专用运行链已加载（单一初始化入口）');
