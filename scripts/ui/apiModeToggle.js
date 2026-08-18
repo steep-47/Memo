@@ -1,9 +1,24 @@
 import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
+const MODE_MIGRATION_VERSION = 7;
 
 function getEnabled() {
     return USER?.tableBaseSetting?.step_by_step === true;
+}
+
+function ensureDefaultOffByConfigVersion() {
+    const settings = USER?.tableBaseSetting;
+    if (!settings) return;
+
+    const version = Number(settings.updateIndex || 0);
+    if (version >= MODE_MIGRATION_VERSION) return;
+
+    // v7 仅迁移一次：旧版本遗留的独立记录状态统一回到默认关闭。
+    // 迁移后 updateIndex=7，之后完全尊重用户自己的开关选择。
+    settings.step_by_step = false;
+    settings.updateIndex = MODE_MIGRATION_VERSION;
+    USER.saveSettings?.();
 }
 
 function applyMode(enabled, { save = true } = {}) {
@@ -19,7 +34,6 @@ function applyMode(enabled, { save = true } = {}) {
 
     if (replyOptions) replyOptions.style.display = enabled ? 'none' : '';
     if (stepOptions) {
-        // 容器始终保留；关闭时只隐藏独立记录专属控件，模板继续显示。
         stepOptions.classList.toggle('memory-independent-record-off', !enabled);
         stepOptions.style.display = '';
     }
@@ -59,6 +73,8 @@ function mountToggle() {
     const host = fillTime.parentElement;
     if (!host) return false;
 
+    ensureDefaultOffByConfigVersion();
+
     if (!document.getElementById(TOGGLE_ID)) {
         const toggle = createToggle();
         const runTitle = Array.from(host.querySelectorAll('h4')).find(el =>
@@ -68,8 +84,6 @@ function mountToggle() {
         else host.insertBefore(toggle, host.firstChild);
     }
 
-    // 默认值由 defaultSettings.step_by_step=false 决定；
-    // 之后完全尊重 USER.tableBaseSetting 中已保存的用户选择。
     applyMode(getEnabled(), { save: false });
     return true;
 }
@@ -83,12 +97,11 @@ function start() {
         setTimeout(() => observer.disconnect(), 10000);
     }
 
-    // 原插件 renderSetting 可能稍后再次隐藏 step_by_step_options；
-    // 延迟只做 UI 同步，不改用户选择。
+    // 原插件 renderSetting 可能稍后再次写 display:none；这里只重新同步 UI，不改保存值。
     [0, 50, 200, 500, 1000].forEach(delay => {
         setTimeout(() => applyMode(getEnabled(), { save: false }), delay);
     });
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载（默认关闭，尊重用户保存状态）');
+console.log('[Memo] 独立记录 API 开关已加载（v7 默认关闭，之后记忆用户选择）');
