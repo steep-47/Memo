@@ -50,7 +50,7 @@ function normalizeHeader(text) {
     return String(text || '').replace(/\s+/g, '').trim();
 }
 
-function cloneTableColumns(source, indices) {
+function cloneTableColumns(source, indices, indexColumn = -1) {
     const clone = source.cloneNode(false);
     clone.removeAttribute('id');
     clone.classList.remove('memory-role-status-source');
@@ -61,13 +61,15 @@ function cloneTableColumns(source, indices) {
         for (const row of Array.from(section.rows || [])) {
             const rowClone = row.cloneNode(false);
             const cells = Array.from(row.cells || []);
-            // pandas/插件表格常有最左侧行号列：如果数据行比表头多一格，则始终保留该列。
-            const headerCount = Array.from(source.querySelector('thead tr')?.cells || []).length;
-            const hasIndexColumn = cells.length > headerCount;
-            if (hasIndexColumn && cells[0]) rowClone.appendChild(cells[0].cloneNode(true));
+
+            // 行号列单独保留，但绝不参与字段断点计算。
+            if (indexColumn >= 0 && cells[indexColumn]) {
+                rowClone.appendChild(cells[indexColumn].cloneNode(true));
+            }
+
             for (const index of indices) {
-                const actual = hasIndexColumn ? index + 1 : index;
-                if (cells[actual]) rowClone.appendChild(cells[actual].cloneNode(true));
+                if (index === indexColumn) continue;
+                if (cells[index]) rowClone.appendChild(cells[index].cloneNode(true));
             }
             sectionClone.appendChild(rowClone);
         }
@@ -101,25 +103,35 @@ function splitRoleStatusTable() {
 
     const headerRow = source.querySelector('thead tr') || source.querySelector('tr');
     if (!headerRow) return;
+
     const headers = Array.from(headerRow.cells).map(cell => normalizeHeader(cell.textContent));
     if (headers.length < 3) return;
 
-    // 用户指定三行断点：第一行到“灵根/体质”；第二行从“灵力”到“钱财”；第三行从“技能/术法”开始。
+    // 最左侧空表头是 pandas/插件的行号列；它只负责显示 0/1/2，不属于角色字段。
+    const indexColumn = headers[0] === '' ? 0 : -1;
+
+    const name = headers.findIndex(h => h === '姓名');
     const spiritRoot = headers.findIndex(h => h.includes('灵根') || h.includes('体质'));
     const spiritPower = headers.findIndex(h => h === '灵力' || h.includes('灵力'));
     const money = headers.findIndex(h => h.includes('钱财'));
     const skills = headers.findIndex(h => h.includes('技能') || h.includes('术法'));
-    if (spiritRoot < 0 || spiritPower < 0 || money < 0 || skills < 0) return;
 
+    if (name < 0 || spiritRoot < 0 || spiritPower < 0 || money < 0 || skills < 0) return;
+    if (!(name <= spiritRoot && spiritRoot < spiritPower && spiritPower <= money && money < skills)) return;
+
+    // 严格三行：
+    // 1 姓名 → 灵根/体质
+    // 2 灵力 → 钱财
+    // 3 技能/术法 → 最后字段
     const groups = [
-        Array.from({length: spiritRoot + 1}, (_, i) => i),
-        Array.from({length: money - spiritPower + 1}, (_, i) => spiritPower + i),
-        Array.from({length: headers.length - skills}, (_, i) => skills + i),
-    ].filter(group => group.length);
+        Array.from({ length: spiritRoot - name + 1 }, (_, i) => name + i),
+        Array.from({ length: money - spiritPower + 1 }, (_, i) => spiritPower + i),
+        Array.from({ length: headers.length - skills }, (_, i) => skills + i),
+    ];
 
     const view = document.createElement('div');
     view.className = 'memory-role-status-three-rows';
-    for (const group of groups) view.appendChild(cloneTableColumns(source, group));
+    for (const group of groups) view.appendChild(cloneTableColumns(source, group, indexColumn));
 
     source.classList.add('memory-role-status-source');
     const host = source.parentElement;
