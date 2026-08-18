@@ -44,9 +44,9 @@ function fixPersonSchema(settings) {
 function patchSettings(settings) {
     if (!settings || typeof settings !== 'object') return;
 
-    // 单 API 模式：主回复同时生成正文与 <tableEdit>，禁止每轮再发起独立填表请求。
-    // 手动“更新记忆”仍可显式调用 TableTwoStepSummary("manual") 作为漏记兜底。
-    settings.step_by_step = false;
+    // 默认单 API：主回复同时生成正文与 <tableEdit>。
+    // 用户可通过“独立记录API”开关把 step_by_step 切为 true；开启后每轮正文后再发起一次独立记录请求。
+    if (typeof settings.step_by_step !== 'boolean') settings.step_by_step = false;
     settings.isAiReadTable = true;
     settings.isAiWriteTable = true;
 
@@ -65,7 +65,6 @@ function migrateSheet(sheet, targetColumns, insertAfterNameColumns) {
     const header = normalized(sheet.getHeader?.() || []);
     if (header.length === targetColumns.length && targetColumns.every((v, i) => header[i] === v)) return false;
 
-    // 只迁移能明确按列名映射的旧结构，绝不靠位置猜数据。
     const targetWithoutNew = targetColumns.filter(col => !insertAfterNameColumns.includes(col));
     if (header.length !== targetWithoutNew.length || !targetWithoutNew.every((v, i) => header[i] === v)) return false;
 
@@ -73,7 +72,7 @@ function migrateSheet(sheet, targetColumns, insertAfterNameColumns) {
     if (!Array.isArray(valueSheet) || !valueSheet.length) return false;
 
     const nameIndex = targetWithoutNew.indexOf('姓名');
-    const insertAt = nameIndex + 2; // valueSheet 第0列为内部行号。
+    const insertAt = nameIndex + 2;
     const migrated = valueSheet.map((row, rowIndex) => {
         const next = Array.isArray(row) ? row.slice() : [];
         insertAfterNameColumns.forEach((column, offset) => next.splice(insertAt + offset, 0, rowIndex === 0 ? column : ''));
@@ -96,14 +95,12 @@ function migrateLegacySheets() {
             } else if (sheet.name === '人物表') {
                 const header = normalized(sheet.getHeader?.() || []);
                 if (!header.includes('别名/称呼')) {
-                    // 最老8列：先一次性在姓名后补“别名/称呼、性别”。
                     const old8 = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
                     if (header.length === old8.length && old8.every((v, i) => header[i] === v)) {
                         migrated = migrateSheet(sheet, PERSON_COLUMNS, ['别名/称呼','性别']) || migrated;
                         continue;
                     }
                 }
-                // 已经有别名的9列：只补性别，顺序为 姓名→别名/称呼→性别→身份/所属。
                 const old9 = PERSON_COLUMNS.filter(col => col !== '性别');
                 if (header.length === old9.length && old9.every((v, i) => header[i] === v)) {
                     const valueSheet = sheet.getContent?.(true);
@@ -140,4 +137,4 @@ setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[世界状态记忆表格] 单API写表模式、玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');
+console.log('[世界状态记忆表格] 单/独立API可切换、玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');
