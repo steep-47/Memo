@@ -44,6 +44,24 @@ function buildTemplateDrawer(content) {
     return drawer;
 }
 
+function bindControlsCollapse() {
+    const button = $('#table_controls_collapse_button');
+    if (!button.length || button.data('memory-collapse-bound')) return;
+
+    button.data('memory-collapse-bound', true);
+    button.on('click', function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const collapsed = tableDrawerContent.toggleClass('table-controls-collapsed').hasClass('table-controls-collapsed');
+        const icon = button.find('i');
+        icon.toggleClass('fa-chevron-up', !collapsed);
+        icon.toggleClass('fa-chevron-down', collapsed);
+        button.attr('aria-expanded', String(!collapsed));
+        button.attr('title', collapsed ? '展开控制区' : '折叠控制区');
+    });
+}
+
 export async function initAppHeaderTableDrawer() {
     if (isEventListenersBound) return;
 
@@ -75,7 +93,6 @@ export async function initAppHeaderTableDrawer() {
         if (contextRow.length) {
             contextRow.after(templateDrawer);
         } else {
-            // 兼容异常 DOM：若找不到上下文层数，则仍保留模板入口，避免功能丢失。
             settingContainer.append(templateDrawer);
         }
     }
@@ -87,6 +104,7 @@ export async function initAppHeaderTableDrawer() {
     appHeaderTableContainer.append(settingContentDiv);
 
     updateButtonStates(databaseButton);
+    bindControlsCollapse();
 
     $('#tableUpdateTag').click(function() {
         $('#extensions_details').trigger('click');
