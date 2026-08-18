@@ -5,32 +5,26 @@
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
         <div style="display: flex; justify-content: flex-start; flex-wrap: wrap; width: fit-content; gap: 4px;">
             <div style="display: flex; justify-content: center" id="clear_table_button">
-                <i class="menu_button menu_button_icon fa-solid fa-trash-can redWarningBG"
-                    style="height: 30px; width: 30px" title="清空表格" data-i18n="[title]Clear table"></i>
+                <i class="menu_button menu_button_icon fa-solid fa-trash-can redWarningBG" style="height: 30px; width: 30px" title="清空表格" data-i18n="[title]Clear table"></i>
             </div>
-            <div style="display: flex; justify-content: center" id="dataTable_history_button" title="查看表格编辑历史记录"
-                data-i18n="[title]View table edit history">
+            <div style="display: flex; justify-content: center" id="dataTable_history_button" title="查看表格编辑历史记录" data-i18n="[title]View table edit history">
                 <i class="menu_button menu_button_icon fa-solid fa-history" style="height: 30px; width: 30px"></i>
             </div>
-            <div style="display: flex; justify-content: center" id="table_undo" title="恢复表格"
-                data-i18n="[title]Completely rebuild table">
+            <div style="display: flex; justify-content: center" id="table_undo" title="恢复表格" data-i18n="[title]Completely rebuild table">
                 <i class="menu_button menu_button_icon fa-solid fa-undo" style="height: 30px; width: 30px"></i>
             </div>
             <div style="display: flex; justify-content: center" id="import_table_button">
-                <i class="menu_button menu_button_icon fa-solid fa-file-import" style="height: 30px; width: 30px"
-                    title="导入表格" data-i18n="[title]Import table"></i>
+                <i class="menu_button menu_button_icon fa-solid fa-file-import" style="height: 30px; width: 30px" title="导入表格" data-i18n="[title]Import table"></i>
             </div>
             <div style="display: flex; justify-content: center" id="export_table_button">
-                <i class="menu_button menu_button_icon fa-solid fa-file-export" style="height: 30px; width: 30px"
-                    title="导出表格" data-i18n="[title]Export table"></i>
+                <i class="menu_button menu_button_icon fa-solid fa-file-export" style="height: 30px; width: 30px" title="导出表格" data-i18n="[title]Export table"></i>
             </div>
         </div>
         <div style="display: flex; justify-content: flex-end; flex-wrap: wrap; width: fit-content; gap: 4px; margin-left: auto;">
             <div style="display: flex; justify-content: center" id="table_directory_button" title="表格目录">
                 <i class="menu_button menu_button_icon fa-solid fa-list" style="height: 30px; min-width: 30px">表格目录</i>
             </div>
-            <div style="display: flex; justify-content: center" id="table_rebuild_button" title="表格总结"
-                data-i18n="[title]Completely rebuild table">
+            <div style="display: flex; justify-content: center" id="table_rebuild_button" title="表格总结" data-i18n="[title]Completely rebuild table">
                 <i class="menu_button menu_button_icon fa-solid fa-repeat">表格整理</i>
             </div>
         </div>
@@ -38,24 +32,13 @@
     <hr />
     <div id="table_history_nav" style="display: flex; align-items: center; justify-content: center;">
         <div style="display: flex; align-items: center; gap: 4px;">
-            <div id="table_prev_button" title="上一表">
-                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">‹</i>
-            </div>
-            <div id="table_jump_button" title="跳转到指定历史表格">
-                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 44px; height: 28px; padding: 2px 8px;">跳转</i>
-            </div>
-            <div id="table_next_button" title="下一表">
-                <i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">›</i>
-            </div>
+            <div id="table_prev_button" title="上一表"><i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">‹</i></div>
+            <div id="table_jump_button" title="跳转到指定历史表格"><i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 44px; height: 28px; padding: 2px 8px;">跳转</i></div>
+            <div id="table_next_button" title="下一表"><i class="menu_button menu_button_icon fa-solid" style="font-size: 14px; min-width: 28px; height: 28px; padding: 2px 7px;">›</i></div>
         </div>
     </div>
     <hr />
-    <div id="contentContainer" class="memory-table-pinch-area"
-        ontouchstart="if(event.touches.length===2){const a=event.touches[0],b=event.touches[1];this.dataset.pinchDist=String(Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY));this.dataset.pinchStartScale=this.dataset.pinchScale||'1';}"
-        ontouchmove="if(event.touches.length===2&&this.dataset.pinchDist){const a=event.touches[0],b=event.touches[1];const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);const start=Number(this.dataset.pinchDist);const base=Number(this.dataset.pinchStartScale||1);let s=base*(d/start);s=Math.max(0.6,Math.min(2,s));const t=this.querySelector('#tableContainer');if(t){t.style.zoom=String(s);this.dataset.pinchScale=String(s);}event.preventDefault();}"
-        ontouchend="if(event.touches.length<2){delete this.dataset.pinchDist;delete this.dataset.pinchStartScale;}"
-        ontouchcancel="delete this.dataset.pinchDist;delete this.dataset.pinchStartScale;">
-        <div id="tableContainer">
-        </div>
+    <div id="contentContainer" class="memory-table-pinch-area">
+        <div id="tableContainer"></div>
     </div>
 </div>
