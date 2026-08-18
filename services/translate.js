@@ -51,18 +51,33 @@ function forceWorldMemoryWriteProtocol() {
     try {
         const settings = applicationFunctionManager.power_user;
         if (!settings.muyoo_dataTable) settings.muyoo_dataTable = {};
-        settings.muyoo_dataTable.message_template = WORLD_MEMORY_PROMPT;
-        settings.muyoo_dataTable.isExtensionAble = true;
-        settings.muyoo_dataTable.isAiReadTable = true;
-        settings.muyoo_dataTable.isAiWriteTable = true;
-        if (settings.muyoo_dataTable.injection_mode === 'injection_off') {
-            settings.muyoo_dataTable.injection_mode = 'deep_system';
-        }
-        settings.muyoo_dataTable.updateIndex = Math.max(Number(settings.muyoo_dataTable.updateIndex || 0), 7);
+        const table = settings.muyoo_dataTable;
+
+        table.message_template = WORLD_MEMORY_PROMPT;
+        table.isExtensionAble = true;
+        table.isAiReadTable = true;
+        table.isAiWriteTable = true;
+
+        // 使用原插件最稳定的“正文内直接生成 tableEdit，再由 CHARACTER_MESSAGE_RENDERED 解析”的链路。
+        // 不使用独立填表 API，避免本地旧设置把更新送到另一条链路。
+        table.step_by_step = false;
+        table.injection_mode = 'deep_system';
+        table.deep = 1;
+        table.updateIndex = Math.max(Number(table.updateIndex || 0), 8);
+
         applicationFunctionManager.saveSettingsDebounced?.();
-        console.log('[World Memory] 六表写入协议已同步到当前用户设置');
+        console.log('[World Memory][diag] write protocol synced', {
+            enabled: table.isExtensionAble,
+            read: table.isAiReadTable,
+            write: table.isAiWriteTable,
+            step_by_step: table.step_by_step,
+            injection_mode: table.injection_mode,
+            deep: table.deep,
+            updateIndex: table.updateIndex,
+            promptLength: table.message_template?.length || 0,
+        });
     } catch (error) {
-        console.warn('[World Memory] 写入协议同步失败，继续使用原设置：', error);
+        console.warn('[World Memory][diag] protocol sync failed:', error);
     }
 }
 
