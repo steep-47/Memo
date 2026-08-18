@@ -15,7 +15,6 @@ import applicationFunctionManager from "./services/appFuncManager.js"
 import {SheetBase} from "./core/table/base.js";
 import { Cell } from "./core/table/cell.js";
 import { initExternalDataAdapter } from './external-data-adapter.js';
-import { applyDynamicTableSorting } from './utils/tableSorting.js';
 
 
 console.log("______________________记忆插件：开始加载______________________")
@@ -313,7 +312,6 @@ export function parseTableEditTag(piece, mesIndex = -1, ignoreCheck = false) {
     for (const EditAction of sortActions(tableEditActions)) {
         executeAction(EditAction, sheets)
     }
-    applyDynamicTableSorting(sheets)
     sheets.forEach(sheet => sheet.save(piece, true))
     console.log("聊天模板：", BASE.sheetsData.context)
     console.log("获取到的表格数据", prePiece)
@@ -341,7 +339,6 @@ export function executeTableEditActions(matches, referencePiece) {
     for (const EditAction of sortActions(tableEditActions)) {
         executeAction(EditAction, sheets)
     }
-    applyDynamicTableSorting(sheets)
 
     // 核心修复：确保修改被保存到当前最新的聊天片段中。
     const { piece: currentPiece } = USER.getChatPiece();

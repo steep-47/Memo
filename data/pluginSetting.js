@@ -141,7 +141,7 @@ export const defaultSettings = await switchLanguage('__defaultSettings__', {
     // 是否写表
     isAiWriteTable: true,
     // 预留
-    updateIndex:5,
+    updateIndex:6,
     /**
      * ===========================
      * 注入设置

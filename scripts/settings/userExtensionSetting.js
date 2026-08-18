@@ -647,6 +647,16 @@ export function loadSettings() {
         initTableStructureToTemplate();
         USER.tableBaseSetting.updateIndex = 5;
     }
+    if (USER.tableBaseSetting.updateIndex < 6) {
+        USER.tableBaseSetting.message_template = USER.tableBaseDefaultSettings.message_template;
+        USER.tableBaseSetting.refresh_system_message_template = USER.tableBaseDefaultSettings.refresh_system_message_template;
+        USER.tableBaseSetting.refresh_user_message_template = USER.tableBaseDefaultSettings.refresh_user_message_template;
+        USER.tableBaseSetting.tableStructure = JSON.parse(JSON.stringify(USER.tableBaseDefaultSettings.tableStructure));
+        initTableStructureToTemplate();
+        USER.tableBaseSetting.updateIndex = 6;
+        USER.saveSettings();
+        console.log('[World Memory] 已迁移到六表动态记忆配置 v6');
+    }
     if (USER.tableBaseSetting.deep < 0) formatDeep()
 
     renderSetting();
