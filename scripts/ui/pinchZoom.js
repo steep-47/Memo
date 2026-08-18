@@ -39,16 +39,50 @@ function keepDrawerFilled(area) {
     area.style.boxSizing = 'border-box';
 }
 
+function measureTrueContentWidth(area) {
+    const tableContainer = area?.querySelector?.('#tableContainer');
+    if (!tableContainer) return 0;
+
+    // 宽表常被各自的 overflow 容器包住，父级 scrollWidth 看不到内部真实宽度。
+    // 扫描所有后代，取最大的 scrollWidth / bounding width 作为六表整体画布宽度。
+    let widest = Math.max(tableContainer.clientWidth, tableContainer.scrollWidth);
+    const nodes = tableContainer.querySelectorAll('*');
+
+    for (const node of nodes) {
+        const sw = Number(node.scrollWidth) || 0;
+        const rectWidth = node.getBoundingClientRect?.().width || 0;
+        // rectWidth 受 zoom 影响，换算回当前未缩放坐标。
+        const logicalRectWidth = currentScale > 0 ? rectWidth / currentScale : rectWidth;
+        widest = Math.max(widest, sw, logicalRectWidth);
+    }
+
+    return Math.ceil(widest);
+}
+
+function syncWholeCanvasWidth(area) {
+    const tableContainer = area?.querySelector?.('#tableContainer');
+    if (!tableContainer) return;
+
+    const trueWidth = measureTrueContentWidth(area);
+    const viewportLogicalWidth = currentScale > 0 ? area.clientWidth / currentScale : area.clientWidth;
+    const canvasWidth = Math.max(trueWidth, viewportLogicalWidth);
+
+    tableContainer.style.width = `${canvasWidth}px`;
+    tableContainer.style.maxWidth = 'none';
+    tableContainer.dataset.memoryCanvasWidth = String(canvasWidth);
+}
+
 function getMaxPan(area) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer) return 0;
 
-    // scrollWidth 会把各张表内部超出的宽度也计算进去。
-    const visualContentWidth = tableContainer.scrollWidth * currentScale;
+    syncWholeCanvasWidth(area);
+
+    const canvasWidth = Number(tableContainer.dataset.memoryCanvasWidth || tableContainer.scrollWidth || 0);
+    const visualContentWidth = canvasWidth * currentScale;
     const viewportWidth = area.clientWidth;
     const visualOverflow = Math.max(0, visualContentWidth - viewportWidth);
 
-    // transform 在 zoom 后一起生效，换算回未缩放坐标。
     return currentScale > 0 ? visualOverflow / currentScale : visualOverflow;
 }
 
@@ -70,7 +104,7 @@ function applyScale(area, scale) {
     tableContainer.style.zoom = String(currentScale);
     tableContainer.dataset.memoryPinchScale = String(currentScale);
 
-    // 缩放后重新限制当前横移量，避免出现大片空白。
+    syncWholeCanvasWidth(area);
     applyPan(area, panOffset);
     keepDrawerFilled(area);
 }
@@ -89,6 +123,7 @@ function onTouchStart(event) {
 
         horizontalPanning = false;
         panArea = null;
+        syncWholeCanvasWidth(area);
         keepDrawerFilled(area);
         return;
     }
@@ -102,6 +137,7 @@ function onTouchStart(event) {
         const savedPan = Number(tableContainer?.dataset?.memoryPanX || panOffset || 0);
         panStartOffset = Number.isFinite(savedPan) ? savedPan : 0;
         horizontalPanning = false;
+        syncWholeCanvasWidth(area);
     }
 }
 
@@ -126,7 +162,6 @@ function onTouchMove(event) {
     if (!horizontalPanning) {
         if (Math.abs(dx) < HORIZONTAL_THRESHOLD && Math.abs(dy) < HORIZONTAL_THRESHOLD) return;
 
-        // 只有明显的横向手势才接管；上下滑仍交给页面正常滚动。
         if (Math.abs(dx) <= Math.abs(dy)) {
             panArea = null;
             return;
@@ -156,8 +191,15 @@ function refreshVisibleArea() {
     const area = document.querySelector('#contentContainer.memory-table-pinch-area');
     if (!area) return;
     keepDrawerFilled(area);
+    syncWholeCanvasWidth(area);
     applyPan(area, panOffset);
 }
+
+// 表格数据刷新后重新测量真实宽度。
+const observer = new MutationObserver(() => {
+    requestAnimationFrame(refreshVisibleArea);
+});
+observer.observe(document.documentElement, { childList: true, subtree: true });
 
 // capture=true：优先于每张表自身的横向滚动处理器接管手势。
 document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
