@@ -13,49 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Unify cleanup table input with manual memory update
+      - name: Fix silent main API loading toast null access
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          p = Path('scripts/runtime/absoluteRefresh.js')
+          p = Path('scripts/settings/standaloneAPI.js')
           s = p.read_text(encoding='utf-8')
-
-          old_import = 'import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag } from "../../index.js";'
-          new_import = 'import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag, getTablePromptByPiece } from "../../index.js";'
-          if s.count(old_import) != 1:
-              raise SystemExit('absoluteRefresh import site changed; aborting safely')
-          s = s.replace(old_import, new_import, 1)
-
-          old_block = '''        const tableJson = latestTables.map((table, index) => ({...table.getReadableJson(), tableIndex: index}));
-        const tableJsonText = JSON.stringify(tableJson);
-'''
-          new_block = '''        // 与“手动更新记忆”统一：当前表格使用 Memo 原生文本格式。
-        // 这里只统一输入表示；现有整理输出/保存链保持不变，避免影响已稳定的执行逻辑。
-        const currentTableText = getTablePromptByPiece(piece);
-'''
-          if s.count(old_block) != 1:
-              raise SystemExit('table input block changed; aborting safely')
-          s = s.replace(old_block, new_block, 1)
-
-          s = s.replace("        console.log('重整理 - 最新的表格数据:', tableJsonText);", "        console.log('重整理 - 最新的表格数据:', currentTableText);", 1)
-          count = s.count('output = output.replace(/\\$0/g, tableJsonText);')
-          if count != 1:
-              raise SystemExit(f'expected one system $0 replacement, found {count}')
-          s = s.replace('output = output.replace(/\\$0/g, tableJsonText);', 'output = output.replace(/\\$0/g, () => currentTableText);', 1)
-
-          count = s.count('userPrompt = userPrompt.replace(/\\$0/g, tableJsonText);')
-          if count != 1:
-              raise SystemExit(f'expected one user $0 replacement, found {count}')
-          s = s.replace('userPrompt = userPrompt.replace(/\\$0/g, tableJsonText);', 'userPrompt = userPrompt.replace(/\\$0/g, () => currentTableText);', 1)
-
+          old = '        loadingToast.close();\n        return suspended ? \'suspended\' : response;'
+          new = '        loadingToast?.close();\n        loadingToast = null;\n        return suspended ? \'suspended\' : response;'
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f'expected 2 unguarded close sites, found {count}')
+          s = s.replace(old, new)
           p.write_text(s, encoding='utf-8')
           PY
 
-          node --check scripts/runtime/absoluteRefresh.js
+          node --check scripts/settings/standaloneAPI.js
 
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/runtime/absoluteRefresh.js
-          git commit -m '统一表格整理与手动更新的表格输入格式' || exit 0
+          git add scripts/settings/standaloneAPI.js
+          git commit -m '修复静默自动填表主API空对象错误' || exit 0
           git push
