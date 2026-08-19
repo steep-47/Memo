@@ -14,14 +14,17 @@ const MANUAL_PATCH_GUIDE = `【手动更新记忆｜只补漏】
 - 不猜测未知。没有漏记时不要为了整理而修改表格。`;
 
 const TABLE_CLEANUP_GUIDE = `【表格整理｜只整理已有记忆】
-本次只整理当前六张表中已经存在的数据。近期聊天只能帮助理解，不得作为新增记忆来源。
+本次只整理当前六张表中已经存在的数据。近期聊天只能辅助理解已有记录，不得作为新增记忆来源。
 - 禁止补录表格中尚不存在的新人物、新物品、新任务、新事件或新状态。
-- 优先 update 合并重复/冗余信息；只有确认重复、失效或错误时才 delete。
-- insert 仅允许在重组当前表中已有信息且确有必要时使用，不能用于补最近剧情。
+- 不得因为近期聊天没有提到某条旧记录就删除它。
+- 优先 update 合并重复/冗余信息；delete 只允许用于能够确认的重复、明确错误或明确失效记录。
+- 任何表都不得被整体清空；删除重复项前必须保留一条信息最完整的有效记录。
+- 当前状态表、角色状态表属于快照表：可以合并重复快照，但不得删除唯一有效行。
 - 人物只有能确认是同一实体时才合并；同名但证据不足必须保留。
-- 背包不同品质、状态或单位不要强行合并。
-- 历史事件不同阶段、不同结果不要误并。
-- 语义不确定时宁可保留，不整表重建，不改表头。`;
+- 背包不同品质、状态或单位不要强行合并；不能因为近期没有提到就删除库存。
+- 历史事件不同阶段、不同结果不要误并；已有重要历史不能因为近期未提及而删除。
+- insert 仅允许在重组当前表中已经存在的信息且确有必要时使用，不能用于补最近剧情。
+- 语义不确定时宁可保留，不整表重建，不改表头、不改列结构。`;
 
 function InitChatForTableTwoStepSummary(chat) {
     if (chat.uid === undefined) chat.uid = SYSTEM.generateRandomString(22);
@@ -296,7 +299,8 @@ export async function manualSummaryChat(todoChats, confirmResult) {
 
     const isAutoMode = confirmResult === 'dont_remind_active';
     const originText = getTablePrompt(referencePiece);
-    const finalPrompt = initTableData();
+    const tablePrompt = initTableData();
+    const finalPrompt = isAutoMode ? tablePrompt : `${MANUAL_PATCH_GUIDE}\n\n${tablePrompt}`;
     const useMainApiForStepByStep = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
     const summaryInput = isAutoMode ? todoChats : `${MANUAL_PATCH_GUIDE}\n\n<最近一轮聊天>\n${todoChats}\n</最近一轮聊天>`;
 
@@ -337,10 +341,8 @@ export async function cleanupWorldMemorySheets() {
     );
     if (confirmResult === false) return false;
 
-    // 与“手动更新记忆”完全共用同一套表格 schema、提示模板和 API 选择。
-    // 职责差异只放在 summaryInput 的任务说明里，不额外包裹或改写表格内容。
     const originText = getTablePrompt(referencePiece);
-    const finalPrompt = initTableData();
+    const finalPrompt = `${TABLE_CLEANUP_GUIDE}\n\n${initTableData()}`;
     const useMainApiForStepByStep = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
 
     const r = await executeIncrementalUpdateFromSummary(
