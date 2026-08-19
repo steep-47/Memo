@@ -40,8 +40,6 @@ function finishSingleApi(chatId) {
     const hasActualAction = matches?.some(text => /(?:insertRow|updateRow|deleteRow)\s*\(/.test(text));
     if (!hasActualAction) return;
 
-    // 原作者也监听 CHARACTER_MESSAGE_RENDERED，并在其中解析指令、保存 hash_sheets。
-    // 这里稍后确认真实写入，避免和原作者同事件竞态导致“已经填表但绿色提示没弹”。
     const delays = [60, 180, 400];
     for (const delay of delays) {
         setTimeout(() => {
@@ -52,7 +50,7 @@ function finishSingleApi(chatId) {
             if (!hasRealSheetChange(latestList, chatId)) return;
 
             handled.add(chat);
-            EDITOR.success('填表完成！');
+            EDITOR.success('填表完成！', '', 2500);
         }, delay);
     }
 }
