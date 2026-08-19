@@ -1,24 +1,14 @@
-// 数据页横线以下：双指缩放 + 单指整体横向拖动。
+// 数据页：单指横向滚动使用浏览器原生 overflow-x；仅保留双指缩放。
 // #1 角色状态表仅在展示层拆成两个短表；底层原表保持不变。
 
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2.0;
-const HORIZONTAL_THRESHOLD = 8;
 const MIN_VALID_WIDTH = 80;
 
 let activeArea = null;
 let startDistance = 0;
 let startScale = 1;
 let currentScale = 1;
-let panArea = null;
-let panStartX = 0;
-let panStartY = 0;
-let panStartOffset = 0;
-let panOffset = 0;
-let panMax = 0;
-let pendingPanOffset = null;
-let panFrame = 0;
-let horizontalPanning = false;
 let observedArea = null;
 let refreshQueued = false;
 
@@ -65,9 +55,7 @@ function normalizeHeader(text) {
 function cleanEmptyCell(cell) {
     if (!cell) return;
     const text = String(cell.textContent || '').trim();
-    if (/^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(text)) {
-        cell.textContent = '';
-    }
+    if (/^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(text)) cell.textContent = '';
 }
 
 function cloneColumns(source, indices, indexColumn = -1) {
@@ -179,7 +167,7 @@ function keepDrawerFilled(area) {
 function measureTrueContentWidth(area) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer || !hasUsableWidth(area)) return 0;
-    let widest = Math.max(area.clientWidth, 0);
+    let widest = Math.max(area.clientWidth / currentScale, 0);
     const nodes = tableContainer.querySelectorAll('*:not(.memory-role-status-source):not(.memory-role-status-source *)');
     for (const node of nodes) {
         const sw = Number(node.scrollWidth) || 0;
@@ -192,44 +180,15 @@ function measureTrueContentWidth(area) {
 
 function syncWholeCanvasWidth(area) {
     const tableContainer = area?.querySelector?.('#tableContainer');
-    if (!tableContainer || !hasUsableWidth(area)) return false;
+    if (!tableContainer || !hasUsableWidth(area)) return;
     const trueWidth = measureTrueContentWidth(area);
     const viewportLogicalWidth = currentScale > 0 ? area.clientWidth / currentScale : area.clientWidth;
     const canvasWidth = Math.max(trueWidth, viewportLogicalWidth);
-    if (!Number.isFinite(canvasWidth) || canvasWidth < MIN_VALID_WIDTH) return false;
+    if (!Number.isFinite(canvasWidth) || canvasWidth < MIN_VALID_WIDTH) return;
     tableContainer.style.width = `${canvasWidth}px`;
     tableContainer.style.maxWidth = 'none';
-    tableContainer.dataset.memoryCanvasWidth = String(canvasWidth);
-    return true;
-}
-
-function calculateMaxPan(area, syncWidth = true) {
-    const tableContainer = area?.querySelector?.('#tableContainer');
-    if (!tableContainer) return 0;
-    if (syncWidth && !syncWholeCanvasWidth(area)) return 0;
-    const canvasWidth = Number(tableContainer.dataset.memoryCanvasWidth || tableContainer.scrollWidth || 0);
-    const visualOverflow = Math.max(0, canvasWidth * currentScale - area.clientWidth);
-    return currentScale > 0 ? visualOverflow / currentScale : visualOverflow;
-}
-
-function writePan(area, offset, maxPan = panMax) {
-    const tableContainer = area?.querySelector?.('#tableContainer');
-    if (!tableContainer || !hasUsableWidth(area)) return;
-    panOffset = Math.max(-maxPan, Math.min(0, offset));
-    tableContainer.style.transform = `translate3d(${panOffset}px, 0, 0)`;
-    tableContainer.dataset.memoryPanX = String(panOffset);
-}
-
-function queuePan(area, offset) {
-    pendingPanOffset = offset;
-    if (panFrame) return;
-    panFrame = requestAnimationFrame(() => {
-        panFrame = 0;
-        if (!area || pendingPanOffset === null) return;
-        const nextOffset = pendingPanOffset;
-        pendingPanOffset = null;
-        writePan(area, nextOffset, panMax);
-    });
+    tableContainer.style.transform = 'none';
+    delete tableContainer.dataset.memoryPanX;
 }
 
 function applyScale(area, scale) {
@@ -239,64 +198,25 @@ function applyScale(area, scale) {
     tableContainer.style.zoom = String(currentScale);
     tableContainer.dataset.memoryPinchScale = String(currentScale);
     syncWholeCanvasWidth(area);
-    panMax = calculateMaxPan(area, false);
-    writePan(area, panOffset, panMax);
     keepDrawerFilled(area);
 }
 
 function onTouchStart(event) {
+    if (event.touches.length !== 2) return;
     const area = findArea(event.target);
     if (!area || !hasUsableWidth(area)) return;
-
-    if (event.touches.length === 2) {
-        activeArea = area;
-        startDistance = distance(event.touches);
-        const tableContainer = area.querySelector('#tableContainer');
-        const savedScale = Number(tableContainer?.dataset?.memoryPinchScale || currentScale || 1);
-        startScale = Number.isFinite(savedScale) ? savedScale : 1;
-        horizontalPanning = false;
-        panArea = null;
-        syncWholeCanvasWidth(area);
-        panMax = calculateMaxPan(area, false);
-        keepDrawerFilled(area);
-        return;
-    }
-
-    if (event.touches.length === 1) {
-        panArea = area;
-        panStartX = event.touches[0].clientX;
-        panStartY = event.touches[0].clientY;
-        const tableContainer = area.querySelector('#tableContainer');
-        const savedPan = Number(tableContainer?.dataset?.memoryPanX || panOffset || 0);
-        panStartOffset = Number.isFinite(savedPan) ? savedPan : 0;
-        horizontalPanning = false;
-        syncWholeCanvasWidth(area);
-        panMax = calculateMaxPan(area, false);
-    }
+    activeArea = area;
+    startDistance = distance(event.touches);
+    const tableContainer = area.querySelector('#tableContainer');
+    const savedScale = Number(tableContainer?.dataset?.memoryPinchScale || currentScale || 1);
+    startScale = Number.isFinite(savedScale) ? savedScale : 1;
+    syncWholeCanvasWidth(area);
+    keepDrawerFilled(area);
 }
 
 function onTouchMove(event) {
-    if (event.touches.length === 2 && activeArea && startDistance > 0) {
-        applyScale(activeArea, startScale * distance(event.touches) / startDistance);
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-    }
-
-    if (event.touches.length !== 1 || !panArea) return;
-    const dx = event.touches[0].clientX - panStartX;
-    const dy = event.touches[0].clientY - panStartY;
-
-    if (!horizontalPanning) {
-        if (Math.abs(dx) < HORIZONTAL_THRESHOLD && Math.abs(dy) < HORIZONTAL_THRESHOLD) return;
-        if (Math.abs(dx) <= Math.abs(dy)) {
-            panArea = null;
-            return;
-        }
-        horizontalPanning = true;
-    }
-
-    queuePan(panArea, panStartOffset + dx / currentScale);
+    if (event.touches.length !== 2 || !activeArea || startDistance <= 0) return;
+    applyScale(activeArea, startScale * distance(event.touches) / startDistance);
     event.preventDefault();
     event.stopPropagation();
 }
@@ -307,16 +227,6 @@ function finishTouch(event) {
         activeArea = null;
         startDistance = 0;
     }
-    if (!event || event.touches.length === 0) {
-        if (panFrame) {
-            cancelAnimationFrame(panFrame);
-            panFrame = 0;
-        }
-        if (panArea && pendingPanOffset !== null) writePan(panArea, pendingPanOffset, panMax);
-        pendingPanOffset = null;
-        panArea = null;
-        horizontalPanning = false;
-    }
 }
 
 function refreshVisibleArea() {
@@ -325,8 +235,6 @@ function refreshVisibleArea() {
     if (!hasUsableWidth(area)) return;
     keepDrawerFilled(area);
     syncWholeCanvasWidth(area);
-    panMax = calculateMaxPan(area, false);
-    writePan(area, panOffset, panMax);
 }
 
 function mutationIsOnlyRoleView(mutation) {
@@ -350,4 +258,4 @@ document.addEventListener('touchend', finishTouch, { passive: true, capture: tru
 document.addEventListener('touchcancel', finishTouch, { passive: true, capture: true });
 window.addEventListener('resize', queueRefresh, { passive: true });
 
-console.log('[世界状态记忆表格] 横向拖动性能优化已加载');
+console.log('[世界状态记忆表格] 原生横向惯性滚动 + 双指缩放已加载');
