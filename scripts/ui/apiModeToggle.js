@@ -2,7 +2,6 @@ import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
 const PREF_KEY = 'independent_record_api_enabled';
-let guardedStore = null;
 
 function getStore() {
     const root = USER?.getSettings?.();
@@ -14,39 +13,7 @@ function getStore() {
 }
 
 function readEnabled() {
-    const store = getStore();
-    return store?.[PREF_KEY] === true;
-}
-
-function installStepByStepGuard() {
-    const store = getStore();
-    if (!store) return false;
-    if (guardedStore === store) return true;
-
-    // 独立记录 API 开关是 step_by_step 的唯一真值。
-    // 如果 loadSettings 替换了整个设置对象，这里会在新对象上重新安装硬锁。
-    if (store[PREF_KEY] !== true) store[PREF_KEY] = false;
-
-    try {
-        Object.defineProperty(store, 'step_by_step', {
-            configurable: true,
-            enumerable: true,
-            get() {
-                return store[PREF_KEY] === true;
-            },
-            set(value) {
-                // 禁止其他代码绕过独立 API 开关直接改变运行模式。
-                if ((value === true) !== (store[PREF_KEY] === true)) {
-                    console.warn('[Memo] 已拦截外部 step_by_step 写入：', value);
-                }
-            },
-        });
-        guardedStore = store;
-        return true;
-    } catch (error) {
-        console.error('[Memo] 安装独立 API 模式硬锁失败：', error);
-        return false;
-    }
+    return getStore()?.[PREF_KEY] === true;
 }
 
 function applyMode(enabled, save = true) {
@@ -54,8 +21,9 @@ function applyMode(enabled, save = true) {
     const store = getStore();
     if (!store) return;
 
-    installStepByStepGuard();
+    // 这里只保存用户选择并同步原作者设置，不再 defineProperty、不拦截原作者写入。
     store[PREF_KEY] = value;
+    USER.tableBaseSetting.step_by_step = value;
 
     const fillTime = document.querySelector('#fill_table_time');
     if (fillTime) fillTime.value = value ? 'after' : 'chat';
@@ -95,8 +63,6 @@ function createToggle() {
 }
 
 function mount() {
-    installStepByStepGuard();
-
     const fillTime = document.querySelector('#fill_table_time');
     if (!fillTime) return false;
 
@@ -106,10 +72,8 @@ function mount() {
         host.insertBefore(createToggle(), fillTime.nextSibling);
     }
 
-    // 默认关闭；只有 PREF_KEY 明确为 true 才允许独立 API。
     applyMode(readEnabled(), false);
 
-    // 原作者下拉框仍可使用，但最终也只能通过 applyMode 修改唯一真值。
     if (!fillTime.dataset.memoModeBound) {
         fillTime.dataset.memoModeBound = '1';
         fillTime.addEventListener('change', () => applyMode(fillTime.value === 'after', true));
@@ -117,25 +81,12 @@ function mount() {
     return true;
 }
 
-installStepByStepGuard();
-
 if (!mount()) {
     const observer = new MutationObserver(() => {
-        installStepByStepGuard();
         if (mount()) observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
     setTimeout(() => observer.disconnect(), 10000);
 }
 
-// 前10秒持续检查“设置对象是否被替换”，只做本地状态同步，不发任何 API。
-let guardChecks = 0;
-const guardTimer = setInterval(() => {
-    guardChecks += 1;
-    const previous = guardedStore;
-    installStepByStepGuard();
-    if (guardedStore !== previous || guardChecks === 1) applyMode(readEnabled(), false);
-    if (guardChecks >= 40) clearInterval(guardTimer);
-}, 250);
-
-console.log('[Memo] 独立记录 API 硬锁已加载：关闭时 step_by_step 恒为 false');
+console.log('[Memo] 独立记录 API 开关已加载');
