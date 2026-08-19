@@ -1,10 +1,10 @@
 {
-  "display_name":"Memo",
+  "display_name":"世界状态记忆表格",
   "loading_order":100,
   "requires":[],
   "optional":[],
   "js":"loader.js",
   "css":"assets/styles/simple-ui.css",
   "author":"private",
-  "version":"2.2.18-world.11"
+  "version":"2.2.18-world.1"
 }

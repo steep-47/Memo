@@ -43,20 +43,6 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     font-size: .9em;
 }
 
-/* 单 API 模式必须保留整个容器，因为“模板”位于其中。
-   使用 !important 覆盖原插件 renderSetting() 后写入的 display:none。 */
-#step_by_step_options.memory-independent-record-off {
-    display: block !important;
-}
-
-#step_by_step_options.memory-independent-record-off::before {
-    display: none !important;
-}
-
-#step_by_step_options.memory-independent-record-off > .checkbox_label:first-child {
-    display: none !important;
-}
-
 #step_by_step_options > .checkbox_label:first-child {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -101,6 +87,7 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     will-change: transform;
 }
 
+/* #1 角色状态表：原始长表仅作为数据源，界面只显示拆分后的两张短表。 */
 #contentContainer.memory-table-pinch-area .memory-role-status-source {
     display: none !important;
 }
@@ -121,6 +108,7 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
     margin: 0 !important;
 }
 
+/* #4 人物表：原始表作为数据源；界面仅拆成上下两张短表。 */
 #contentContainer.memory-table-pinch-area .memory-person-source {
     display: none !important;
 }
@@ -152,9 +140,6 @@ label[for="step_by_step_user_prompt"] ~ .toggle-description,
         grid-template-columns: minmax(132px, 1fr) auto 64px !important;
         gap: 8px !important;
         width: 100% !important;
-    }
-    #step_by_step_options.memory-independent-record-off > .checkbox_label:first-child {
-        display: none !important;
     }
     #trigger_step_by_step_button { min-width: 132px !important; justify-content: center !important; }
     #step_by_step_options > .checkbox_label:first-child::after { grid-column: 1 / -1; }

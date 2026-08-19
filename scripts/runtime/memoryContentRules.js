@@ -5,11 +5,6 @@ const RULE_MARK = '[角色身份归一规则]';
 const PLAYER_COLUMNS = ['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
 const PERSON_COLUMNS = ['姓名','别名/称呼','性别','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
 
-const STEP_BY_STEP_PROMPT = `[
-  {"role":"system","content":"你是世界状态记忆表格整理助手。只根据已确认事实维护现有六张表；已有同一对象优先更新，不重复新建，不猜测未知。只输出<tableEdit><!-- 函数调用 --></tableEdit>。"},
-  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮用户与AI交互>\\n$2\\n</本轮用户与AI交互>"}
-]`;
-
 const compactRules = `\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC；NPC一律进入表4“人物表”。\n- 表4“人物表”仅记录NPC，禁止把<user>/玩家本人写入人物表。\n- 性别只记录剧情已明确确认的信息；未明确时留空，不根据姓名、外貌或称呼猜测。\n- 角色状态/人物记录必须先判断是否为同一人物；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC首次只有描述性称呼时可暂作姓名；正式名字出现后替换临时姓名。真实昵称、外号、道号、稳定职衔写入“别名/称呼”。\n- 身份证据不足时不要强行合并；确认同一人物后只保留一条主记录。\n- 所有属性统一使用“神识”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写占位词，也不得猜测。\n`;
 
 function appendOnce(text) {
@@ -48,25 +43,9 @@ function fixPersonSchema(settings) {
 
 function patchSettings(settings) {
     if (!settings || typeof settings !== 'object') return;
-
-    if (typeof settings.step_by_step !== 'boolean') settings.step_by_step = false;
-    settings.isAiReadTable = true;
-    settings.isAiWriteTable = true;
-
-    const stepPrompt = String(settings.step_by_step_user_prompt || '').trim();
-    if (!stepPrompt.startsWith('[')) settings.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
-
     fixPlayerSchema(settings);
     fixPersonSchema(settings);
-
-    if ('message_template' in settings) {
-        const currentTemplate = String(settings.message_template || '');
-        // 迁移我们此前过度精简的单API提示词。原作者式完整协议对模型遵循更稳定。
-        if (currentTemplate.includes('# dataTable 世界状态记忆') && !currentTemplate.includes('## 用途')) {
-            settings.message_template = defaultSettings.message_template;
-        }
-        settings.message_template = appendOnce(settings.message_template);
-    }
+    if ('message_template' in settings) settings.message_template = appendOnce(settings.message_template);
     if ('refresh_system_message_template' in settings) settings.refresh_system_message_template = appendOnce(settings.refresh_system_message_template);
     if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendOnce(settings.refresh_user_message_template);
 }
@@ -79,6 +58,7 @@ function migrateSheet(sheet, targetColumns, insertAfterNameColumns) {
     const header = normalized(sheet.getHeader?.() || []);
     if (header.length === targetColumns.length && targetColumns.every((v, i) => header[i] === v)) return false;
 
+    // 只迁移能明确按列名映射的旧结构，绝不靠位置猜数据。
     const targetWithoutNew = targetColumns.filter(col => !insertAfterNameColumns.includes(col));
     if (header.length !== targetWithoutNew.length || !targetWithoutNew.every((v, i) => header[i] === v)) return false;
 
@@ -86,7 +66,7 @@ function migrateSheet(sheet, targetColumns, insertAfterNameColumns) {
     if (!Array.isArray(valueSheet) || !valueSheet.length) return false;
 
     const nameIndex = targetWithoutNew.indexOf('姓名');
-    const insertAt = nameIndex + 2;
+    const insertAt = nameIndex + 2; // valueSheet 第0列为内部行号。
     const migrated = valueSheet.map((row, rowIndex) => {
         const next = Array.isArray(row) ? row.slice() : [];
         insertAfterNameColumns.forEach((column, offset) => next.splice(insertAt + offset, 0, rowIndex === 0 ? column : ''));
@@ -109,12 +89,14 @@ function migrateLegacySheets() {
             } else if (sheet.name === '人物表') {
                 const header = normalized(sheet.getHeader?.() || []);
                 if (!header.includes('别名/称呼')) {
+                    // 最老8列：先一次性在姓名后补“别名/称呼、性别”。
                     const old8 = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
                     if (header.length === old8.length && old8.every((v, i) => header[i] === v)) {
                         migrated = migrateSheet(sheet, PERSON_COLUMNS, ['别名/称呼','性别']) || migrated;
                         continue;
                     }
                 }
+                // 已经有别名的9列：只补性别，顺序为 姓名→别名/称呼→性别→身份/所属。
                 const old9 = PERSON_COLUMNS.filter(col => col !== '性别');
                 if (header.length === old9.length && old9.every((v, i) => header[i] === v)) {
                     const valueSheet = sheet.getContent?.(true);
@@ -137,7 +119,7 @@ function migrateLegacySheets() {
             BASE.refreshContextView?.();
         }
     } catch (error) {
-        console.warn('[Memo] 性别/别名字段迁移失败，已停止迁移以保护原数据', error);
+        console.warn('[世界状态记忆表格] 性别字段迁移失败，已停止迁移以保护原数据', error);
     }
 }
 
@@ -151,4 +133,4 @@ setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[Memo] 玩家/NPC职责、性别、身份归一、空值、神识与独立API模板规则已加载');
+console.log('[世界状态记忆表格] 玩家/NPC职责、性别字段、身份归一、空值与神识规则已加载');

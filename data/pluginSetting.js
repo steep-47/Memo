@@ -15,57 +15,7 @@ export const defaultSettings = await switchLanguage('__defaultSettings__', {
     updateIndex: 6,
     injection_mode: 'deep_system',
     deep: 1,
-    message_template: `# dataTable 说明
-## 用途
-- dataTable 是用于保存世界状态与长期记忆的表格，也是生成后续正文的重要参考。
-- 你需要先正常完成本轮正文，再根据本轮已确认事实检查 dataTable 是否需要更新。
-
-## 数据与格式
-- 下方包含当前全部表格、表头、已有行、表格说明和增删改触发条件。
-- 表名格式：[tableIndex:表名]。
-- 列名格式：[colIndex:列名]。
-- 行号格式：[rowIndex]。
-
-{{tableData}}
-
-# 增删改 dataTable 操作方法
-当你生成正文后，必须按照每张表的【增删改触发条件】逐表检视。只有确有变化时才修改；没有变化的表不要操作。
-如需修改，请在正文末尾输出一个 <tableEdit> 标签，并在其中使用以下函数。
-
-## 操作规则（必须严格遵守）
-<OperateRule>
-- 插入新行：
-insertRow(tableIndex:number, data:{[colIndex:number]:string|number})
-- 删除已有行：
-deleteRow(tableIndex:number, rowIndex:number)
-- 更新已有行：
-updateRow(tableIndex:number, rowIndex:number, data:{[colIndex:number]:string|number})
-</OperateRule>
-
-## 重要操作原则（必须遵守）
-- 每次回复完成正文后，都必须检查 0→1→2→3→4→5 六张表是否需要增删改。
-- 已有同一对象、人物、物品、事项时优先 updateRow，禁止因为描述变化或称呼变化重复 insertRow。
-- 只记录剧情已经明确确认的事实；禁止猜测、补全或杜撰未知信息。
-- 未知、没有、未提及的字段留空，不写“未知、暂无、无、N/A”等占位词。
-- 表1“角色状态表”只记录 <user>/玩家本人；任何 NPC 都不得写入表1。
-- 表4“人物表”只记录 NPC；<user>/玩家本人不得写入表4。
-- 同一 NPC 的姓名、昵称、外号、道号、职衔与描述性称呼属于同一身份体系；正式名字确认后使用正式名字，真实且仍使用的称呼放入“别名/称呼”。
-- 性别只在剧情明确时记录，不得根据姓名、外貌、衣着或称呼猜测。
-- 属性统一使用“神识”；“神魂”仅在确实表示灵魂/魂魄本体时使用。
-- insertRow 时应填写本轮已经明确知道的相关列；不要为了填满表格而猜测。
-- <tableEdit> 内必须使用 <!-- --> 注释包裹函数调用。
-- <tableEdit> 是后台表格编辑指令，不属于剧情正文，不要解释它。
-
-# 输出格式示例
-如果本轮有需要记录的变化，正文结束后追加：
-<tableEdit>
-<!--
-updateRow(0, 0, {1:"午后", 2:"青云宗山门"})
-insertRow(4, {0:"林青", 1:"林师兄", 2:"男", 3:"青云宗外门弟子", 8:"在场"})
-insertRow(5, {0:"今日", 1:"青云宗山门", 2:"<user>/林青", 3:"双方首次见面", 4:"建立初步联系"})
--->
-</tableEdit>
-如果本轮确实没有任何表格变化，则不要输出 <tableEdit>。`,
+    message_template: `# dataTable 世界状态记忆\n## 表格：0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件\n{{tableData}}\n# 操作\ninsertRow(tableIndex:number,data:{[colIndex:number]:string|number})\nupdateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})\ndeleteRow(tableIndex:number,rowIndex:number)\n# 规则\n- 检查顺序0→1→2→3→4→5；已有同一对象优先update，禁止重复insert。\n- 不猜测未知；未知信息留空。\n- 正文后仅在确有变化时输出<tableEdit><!-- 函数调用 --></tableEdit>。`,
     isTableToChat: false,
     show_settings_in_extension_menu: true,
     alternate_switch: true,
@@ -93,10 +43,7 @@ insertRow(5, {0:"今日", 1:"青云宗山门", 2:"<user>/林青", 3:"双方首�
     additionalPrompt: '',
     step_by_step: false,
     step_by_step_use_main_api: true,
-    step_by_step_user_prompt: `[
-  {"role":"system","content":"你是世界状态记忆表格整理助手。只根据已确认事实维护现有六张表；已有同一对象优先更新，不重复新建，不猜测未知。只输出<tableEdit><!-- 函数调用 --></tableEdit>。"},
-  {"role":"user","content":"<操作规则与当前表格>\\n$3\\n</操作规则与当前表格>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮AI回复>\\n$2\\n</本轮AI回复>"}
-]`,
+    step_by_step_user_prompt: `<聊天记录>\n$1\n</聊天记录>\n<操作规则>\n$3\n</操作规则>`,
     bool_silent_refresh: false,
     separateReadContextLayers: 1,
     separateReadLorebook: false,

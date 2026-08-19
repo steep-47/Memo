@@ -26,18 +26,7 @@ function checkIfChatIsExecuted(chat, targetSwipeUid) {
 }
 
 function handleMessages(string) {
-    return String(string ?? '').replace(/<(tableEdit|think|thinking)>[\s\S]*?<\/\1>/g, '');
-}
-
-function buildCurrentExchange(todoPiece) {
-    const chats = USER.getContext()?.chat || [];
-    const currentIndex = chats.lastIndexOf(todoPiece);
-    const currentText = `${todoPiece?.name || 'assistant'}: ${handleMessages(todoPiece?.mes)}`;
-    if (currentIndex <= 0) return currentText;
-
-    const previous = chats[currentIndex - 1];
-    if (!previous?.is_user) return currentText;
-    return `${previous?.name || 'user'}: ${handleMessages(previous?.mes)}\n${currentText}`;
+    return string.replace(/<(tableEdit|think|thinking)>[\s\S]*?<\/\1>/g, '');
 }
 
 function MarkChatAsWaiting(chat, swipeUid) {
@@ -80,12 +69,14 @@ function ensureCharacterAliasColumnInSheet(sheet, referencePiece) {
             return copy;
         });
         sheet.rebuildHashSheetByValueSheet(migrated);
-        // 这里只做旧表结构兼容，不覆盖当前人物表的职责/更新规则。
+        sheet.source.data.note = '值得长期记忆的NPC；同一人物一行；姓名/别名/称呼共同用于识别同一实体';
+        sheet.source.data.insertNode = '新增前先检查姓名/别名/身份/外貌/事件链，确认不是已有实体才插入';
+        sheet.source.data.updateNode = '同一实体出现新姓名/昵称/外号/称呼时更新原行并补入别名；其他长期信息变化时更新';
         sheet.save(referencePiece, true);
-        console.log('[Memo][schema] 当前聊天人物表已兼容增加“别名/称呼”列');
+        console.log('[World Memory][schema] 当前聊天人物表已兼容增加“别名/称呼”列');
         return true;
     } catch (error) {
-        console.warn('[Memo][schema] 当前聊天人物表别名列迁移失败，已跳过:', error);
+        console.warn('[World Memory][schema] 当前聊天人物表别名列迁移失败，已跳过:', error);
         return false;
     }
 }
@@ -106,19 +97,23 @@ function normalizeWorldMemorySheets(referencePiece) {
             changed = true;
         };
 
+        // 人物表结构兼容：旧聊天仅插入“别名/称呼”列，不重建、不清空其他数据。
         const personSheet = sheets.find(s => s?.name === '人物表');
         if (personSheet && ensureCharacterAliasColumnInSheet(personSheet, referencePiece)) changed = true;
 
+        // 1) 快照型：当前状态 / 角色状态，只保留最新一行。
         for (const sheetName of ['当前状态表', '角色状态表']) {
             const sheet = sheets.find(s => s?.name === sheetName);
             if (!sheet?.getContent) continue;
             const valueSheet = sheet.getContent(true);
             if (Array.isArray(valueSheet) && valueSheet.length > 2) {
                 saveValueSheet(sheet, [valueSheet[0], valueSheet[valueSheet.length - 1]]);
-                console.log(`[Memo][normalize] ${sheetName} 已压缩为最新快照`);
+                console.log(`[World Memory][normalize] ${sheetName} 已压缩为最新快照`);
             }
         }
 
+        // 2) 库存型：背包按“物品名+类型+状态/品质”归组。
+        // 数量能解析且单位一致时相加；不同品质/状态/单位不强制合并。
         const bagSheet = sheets.find(s => s?.name === '背包表');
         if (bagSheet?.getContent) {
             const valueSheet = bagSheet.getContent(true);
@@ -180,12 +175,13 @@ function normalizeWorldMemorySheets(referencePiece) {
                     const cleaned = [header, ...mergedRows, ...passthrough];
                     if (cleaned.length !== valueSheet.length || JSON.stringify(cleaned) !== JSON.stringify(valueSheet)) {
                         saveValueSheet(bagSheet, cleaned);
-                        console.log('[Memo][normalize] 背包同类库存已按数量合并');
+                        console.log('[World Memory][normalize] 背包同类库存已按数量合并');
                     }
                 }
             }
         }
 
+        // 3) 生命周期型：当前任务与约定，只保留尚未结束事项。
         const taskSheet = sheets.find(s => s?.name === '当前任务与约定表');
         if (taskSheet?.getContent) {
             const valueSheet = taskSheet.getContent(true);
@@ -200,15 +196,21 @@ function normalizeWorldMemorySheets(referencePiece) {
                     })];
                     if (cleaned.length !== valueSheet.length) {
                         saveValueSheet(taskSheet, cleaned);
-                        console.log(`[Memo][normalize] 已结束任务已移出: ${valueSheet.length - cleaned.length} 行`);
+                        console.log(`[World Memory][normalize] 已结束任务已移出: ${valueSheet.length - cleaned.length} 行`);
                     }
                 }
             }
         }
 
-        if (changed) console.log('[Memo][normalize] 按表格类型的轻量整理完成');
+        // 4) 实体档案型：人物是否同一实体需要语义判断。
+        // 代码层只保证“别名/称呼”字段可用；同名或不同称呼的合并由 AI 依据身份、外貌、关系、事件链判断，避免误并同名角色。
+
+        // 5) 事件归档型：历史事件不在代码层按文本相似度强制合并。
+        // 是否属于同一事件链需要语义判断，交给提示词控制“优先 update、减少流水账”。
+
+        if (changed) console.log('[World Memory][normalize] 按表格类型的轻量整理完成');
     } catch (error) {
-        console.warn('[Memo][normalize] 整理失败，已跳过，不影响本轮写表:', error);
+        console.warn('[World Memory][normalize] 整理失败，已跳过，不影响本轮写表:', error);
     }
 }
 
@@ -222,22 +224,21 @@ export async function TableTwoStepSummary(mode) {
 
     const {piece: todoPiece} = USER.getChatPiece();
     if (todoPiece === undefined) {
-        console.log('[Memo][auto] 未找到待填表的对话片段');
+        console.log('[World Memory][auto] 未找到待填表的对话片段');
         if (mode === 'manual') EDITOR.error('未找到待填表的对话片段，请检查当前对话是否正确。');
         return false;
     }
 
-    // 独立记录必须同时看到“本轮用户动作 + AI结果”，避免只根据AI回复漏记用户主动行为。
-    const todoChats = buildCurrentExchange(todoPiece);
-    console.log(`[Memo][${mode}] 待填表内容长度:`, todoChats?.length ?? 0);
+    const todoChats = todoPiece.mes;
+    console.log(`[World Memory][${mode}] 待填表内容长度:`, todoChats?.length ?? 0);
 
     if (mode !== 'manual') {
         try {
             const result = await manualSummaryChat(todoChats, 'dont_remind_active');
-            console.log('[Memo][auto] 自动填表结果:', result);
+            console.log('[World Memory][auto] 自动填表结果:', result);
             return result;
         } catch (error) {
-            console.error('[Memo][auto] 自动填表异常:', error);
+            console.error('[World Memory][auto] 自动填表异常:', error);
             return false;
         }
     }
@@ -269,7 +270,7 @@ export async function manualSummaryChat(todoChats, confirmResult) {
 
     const isAutoMode = confirmResult === 'dont_remind_active';
     if (!isAutoMode && initialPiece.hash_sheets && Object.keys(initialPiece.hash_sheets).length > 0) {
-        console.log('[Memo] 手动立即填表：检测到表格中有数据，执行恢复操作...');
+        console.log('[Memory Enhancement] 手动立即填表：检测到表格中有数据，执行恢复操作...');
         try {
             await undoSheets(0);
             EDITOR.success('表格已恢复到上一版本。');
@@ -296,7 +297,7 @@ export async function manualSummaryChat(todoChats, confirmResult) {
         isAutoMode
     );
 
-    console.log('[Memo] 独立填表增量更新结果:', r);
+    console.log('[World Memory] 独立填表增量更新结果:', r);
     if (r === 'success') {
         normalizeWorldMemorySheets(referencePiece);
         await USER.saveChat();
