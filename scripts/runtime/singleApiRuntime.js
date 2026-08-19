@@ -47,6 +47,30 @@ function alreadyInjected(chat) {
     return Array.isArray(chat) && chat.some(item => String(item?.content || '').includes(MEMO_MARK));
 }
 
+function analyzeRaw(raw, source) {
+    const text = String(raw || '');
+    const hasOpenTag = /<tableEdit\b/i.test(text);
+    const hasCloseTag = /<\/tableEdit>/i.test(text);
+    const hasAction = /\b(?:insertRow|updateRow|deleteRow)\s*\(/.test(text);
+    reportDiagnostic({
+        stage: 'response',
+        source,
+        status: hasOpenTag && hasAction ? 'tableedit-detected' : 'tableedit-missing',
+        hasOpenTag,
+        hasCloseTag,
+        hasAction,
+        length: text.length,
+    });
+}
+
+function getLatestAssistant() {
+    const chats = USER.getContext()?.chat || [];
+    for (let i = chats.length - 1; i >= 0; i--) {
+        if (chats[i] && chats[i].is_user !== true) return { chat: chats[i], index: i };
+    }
+    return { chat: null, index: -1 };
+}
+
 function onPromptReady(eventData) {
     if (!isSingleApiMode()) return;
     if (USER?.tableBaseSetting?.isExtensionAble === false) return;
@@ -70,18 +94,7 @@ function onMessageRendered(chatId) {
     const chat = USER.getContext()?.chat?.[chatId];
     if (!chat || chat.is_user) return;
 
-    const raw = String(chat.mes ?? chat.content ?? '');
-    const hasOpenTag = /<tableEdit\b/i.test(raw);
-    const hasCloseTag = /<\/tableEdit>/i.test(raw);
-    const hasAction = /\b(?:insertRow|updateRow|deleteRow)\s*\(/.test(raw);
-    reportDiagnostic({
-        stage: 'response',
-        status: hasOpenTag && hasAction ? 'tableedit-detected' : 'tableedit-missing',
-        hasOpenTag,
-        hasCloseTag,
-        hasAction,
-        length: raw.length,
-    });
+    analyzeRaw(chat.mes ?? chat.content ?? '', 'CHARACTER_MESSAGE_RENDERED');
 
     try {
         handleEditStrInMessage(chat);
@@ -92,7 +105,23 @@ function onMessageRendered(chatId) {
     }
 }
 
+function onMessageReceived(chatId) {
+    if (!isSingleApiMode()) return;
+    const chat = USER.getContext()?.chat?.[chatId];
+    if (!chat || chat.is_user) return;
+    analyzeRaw(chat.mes ?? chat.content ?? '', 'MESSAGE_RECEIVED');
+}
+
+function onGenerationEnded() {
+    if (!isSingleApiMode()) return;
+    const { chat } = getLatestAssistant();
+    if (!chat) return;
+    analyzeRaw(chat.mes ?? chat.content ?? '', 'GENERATION_ENDED');
+}
+
 APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
+APP.eventSource.on(APP.event_types.MESSAGE_RECEIVED, onMessageReceived);
+APP.eventSource.on(APP.event_types.GENERATION_ENDED, onGenerationEnded);
 
-console.log('[Memo] 单API专用运行链已加载');
+console.log('[Memo] 单API专用运行链已加载（含多事件诊断）');
