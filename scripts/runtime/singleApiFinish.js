@@ -23,6 +23,13 @@ function previousAssistantWithSheets(chatList, fromIndex) {
     return null;
 }
 
+function hasRealSheetChange(chatList, chatId) {
+    const chat = chatList?.[chatId];
+    if (!chat?.hash_sheets) return false;
+    const previous = previousAssistantWithSheets(chatList, Number(chatId));
+    return stableStringify(chat.hash_sheets) !== stableStringify(previous?.hash_sheets ?? {});
+}
+
 function finishSingleApi(chatId) {
     if (independentEnabled()) return;
     const chatList = USER?.getContext?.()?.chat;
@@ -33,17 +40,24 @@ function finishSingleApi(chatId) {
     const hasActualAction = matches?.some(text => /(?:insertRow|updateRow|deleteRow)\s*\(/.test(text));
     if (!hasActualAction) return;
 
-    // 原作者 onMessageReceived 已在同一 CHARACTER_MESSAGE_RENDERED 事件中先执行并把最新表格状态保存到当前消息。
-    // 只有当前消息的 hash_sheets 相比上一条带表格状态的助手消息真的发生变化，才显示成功。
-    const previous = previousAssistantWithSheets(chatList, Number(chatId));
-    const currentSheets = chat.hash_sheets;
-    if (!currentSheets || stableStringify(currentSheets) === stableStringify(previous?.hash_sheets ?? {})) return;
+    // 原作者也监听 CHARACTER_MESSAGE_RENDERED，并在其中解析指令、保存 hash_sheets。
+    // 这里稍后确认真实写入，避免和原作者同事件竞态导致“已经填表但绿色提示没弹”。
+    const delays = [60, 180, 400];
+    for (const delay of delays) {
+        setTimeout(() => {
+            if (handled.has(chat) || independentEnabled()) return;
+            const latestList = USER?.getContext?.()?.chat;
+            const latestChat = latestList?.[chatId];
+            if (latestChat !== chat && !latestChat) return;
+            if (!hasRealSheetChange(latestList, chatId)) return;
 
-    handled.add(chat);
-    EDITOR.success('填表完成！');
+            handled.add(chat);
+            EDITOR.success('填表完成！');
+        }, delay);
+    }
 }
 
 const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, finishSingleApi);
 
-console.log('[Memo] 一次API真实写入完成提示已加载');
+console.log('[Memo] 一次API真实写入绿色提示已加载');
