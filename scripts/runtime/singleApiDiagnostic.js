@@ -87,25 +87,28 @@ function inspectResponse(chatId) {
 
     const mes = String(chat.mes ?? '');
     const { matches } = getTableEditTag(mes);
+    const joined = matches?.join('\n') ?? '';
     const hasTableEdit = Array.isArray(matches) && matches.length > 0;
-    const hasExecutableCode = /(?:insertRow|updateRow|deleteRow)\s*\(/.test(matches?.join('\n') ?? '');
+    const hasExecutableCode = /(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined);
+    const hasNoChange = /NO_CHANGE/.test(joined);
 
     const diag = {
         ...(lastDiag || {}),
         responseHasTableEdit: hasTableEdit,
         responseHasExecutableCode: hasExecutableCode,
+        responseHasNoChange: hasNoChange,
         responseTail: mes.slice(-600),
         responseAt: Date.now(),
     };
     globalThis.__memoSingleApiDiag = diag;
     console.log('[Memo诊断] 一次API最终回复检查', diag);
 
-    if (hasExecutableCode) return;
+    if (hasExecutableCode || hasNoChange) return;
 
     if (lastDiag?.promptFound) {
         EDITOR.warning(lastDiag.fallbackInjected
-            ? '一次API诊断：已补入Memo提示，但模型未输出填表代码'
-            : '一次API诊断：提示已注入，但模型未输出填表代码');
+            ? '一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾'
+            : '一次API诊断：提示已注入，但模型未完成tableEdit收尾');
     } else {
         EDITOR.error('一次API诊断：Memo提示补入失败');
     }
@@ -113,10 +116,9 @@ function inspectResponse(chatId) {
 
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
 APP.eventSource.on(promptEvent, inspectAndFallback);
-// 必须放到该事件最后：先让原作者正常注入；只有仍然缺失时才 fallback，避免重复。
 if (typeof APP.eventSource.makeLast === 'function') {
     APP.eventSource.makeLast(promptEvent, inspectAndFallback);
 }
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, inspectResponse);
 
-console.log('[Memo] 一次API最终请求 fallback + 诊断模块已加载');
+console.log('[Memo] 一次API最终请求 fallback + 固定tableEdit诊断已加载');
