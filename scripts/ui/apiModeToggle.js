@@ -2,7 +2,6 @@ import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
 const PREF_KEY = 'independent_record_api_enabled';
-const RECOVERY_KEY = 'memo33_runtime_recovery_done';
 
 function getStore() {
     const root = USER?.getSettings?.();
@@ -11,23 +10,6 @@ function getStore() {
         root.muyoo_dataTable = {};
     }
     return root.muyoo_dataTable;
-}
-
-function recoverRuntimeStateOnce() {
-    const store = getStore();
-    if (!store || store[RECOVERY_KEY] === true || !USER?.tableBaseSetting) return;
-
-    // 只恢复会直接决定 Memo 是否参与正常聊天的运行状态。
-    // 不改表格数据、不改 API 配置、不改模型、不改表格结构。
-    USER.tableBaseSetting.isExtensionAble = true;
-    USER.tableBaseSetting.isAiReadTable = true;
-    USER.tableBaseSetting.isAiWriteTable = true;
-    USER.tableBaseSetting.step_by_step = false;
-    store[PREF_KEY] = false;
-    store[RECOVERY_KEY] = true;
-
-    USER.saveSettings?.();
-    console.log('[Memo] memo33：已执行一次性运行状态恢复（一次 API 模式）');
 }
 
 function readEnabled() {
@@ -82,8 +64,6 @@ function createToggle() {
     label.append(input, text, hint);
     return label;
 }
-
-recoverRuntimeStateOnce();
 
 function mount() {
     const fillTime = document.querySelector('#fill_table_time');
