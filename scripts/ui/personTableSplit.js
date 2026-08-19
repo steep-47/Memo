@@ -4,7 +4,8 @@
 
 let refreshQueued = false;
 const normalizeHeader = text => String(text || '').replace(/\s+/g, '').trim();
-function cleanEmptyCell(cell) { if (cell && /^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(String(cell.textContent || '').trim())) cell.textContent = ''; }
+const EMPTY_VALUE_RE = /^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i;
+function cleanEmptyCell(cell) { if (cell && EMPTY_VALUE_RE.test(String(cell.textContent || '').trim())) cell.textContent = ''; }
 function getPersonSource(container) {
     const heading = Array.from(container.querySelectorAll('h1,h2,h3,h4,h5,h6')).find(el => /#?4人物表/.test(normalizeHeader(el.textContent)) || normalizeHeader(el.textContent) === '人物表');
     if (!heading) return null;
@@ -13,27 +14,26 @@ function getPersonSource(container) {
     return null;
 }
 function sourceSignature(source) { return Array.from(source.rows || []).map(row => Array.from(row.cells || []).map(cell => cell.textContent || '').join('\u001f')).join('\u001e'); }
-function rowHasRealContent(row, indexColumn, headerRow) {
+function rowHasPersonName(row, nameColumn, headerRow) {
     if (row === headerRow) return true;
-    return Array.from(row.cells || []).some((cell, index) => {
-        if (index === indexColumn) return false;
-        const text = String(cell.textContent || '').trim();
-        return text !== '' && !/^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(text);
-    });
+    const cell = row.cells?.[nameColumn];
+    if (!cell) return false;
+    const text = String(cell.textContent || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+    return text !== '' && !EMPTY_VALUE_RE.test(text);
 }
 function appendVirtualCell(rowClone, isHeaderRow, text, templateCell) {
     const cell = templateCell ? templateCell.cloneNode(true) : document.createElement(isHeaderRow ? 'th' : 'td');
     cell.removeAttribute('id'); cell.textContent = isHeaderRow ? text : ''; rowClone.appendChild(cell);
 }
-function cloneColumns(source, descriptors, indexColumn, headerRow) {
+function cloneColumns(source, descriptors, indexColumn, headerRow, nameColumn) {
     const wrapper = document.createElement('div'); wrapper.className = 'memory-person-half';
     const table = source.cloneNode(false); table.removeAttribute('id'); table.classList.remove('memory-person-source'); table.classList.add('memory-person-half-table');
     for (const section of Array.from(source.children)) {
         if (!['THEAD','TBODY','TFOOT'].includes(section.tagName)) continue;
         const sectionClone = section.cloneNode(false);
         for (const row of Array.from(section.rows || [])) {
-            // 底层表格可能保留预留空行；展示层直接跳过，不删除底层数据。
-            if (!rowHasRealContent(row, indexColumn, headerRow)) continue;
+            // 人物表以“姓名”为有效记录主键。姓名为空即视为底层预留空行，仅展示层跳过。
+            if (!rowHasPersonName(row, nameColumn, headerRow)) continue;
             const rowClone = row.cloneNode(false), cells = Array.from(row.cells || []), isHeaderRow = row === headerRow;
             const templateCell = cells.find((cell, index) => index !== indexColumn && !!cell) || null;
             if (indexColumn >= 0 && cells[indexColumn]) rowClone.appendChild(cells[indexColumn].cloneNode(true));
@@ -73,7 +73,8 @@ function splitPersonTable() {
     const signature = `${sourceSignature(source)}|alias:${aliasIndex >= 0}|gender:${genderIndex >= 0}`;
     let view = container.querySelector('.memory-person-two-tables'); if (view?.dataset?.sourceSignature === signature) return;
     const nextView = document.createElement('div'); nextView.className = 'memory-person-two-tables'; nextView.dataset.sourceSignature = signature;
-    nextView.appendChild(cloneColumns(source, firstGroup, indexColumn, headerRow)); nextView.appendChild(cloneColumns(source, secondGroup, indexColumn, headerRow));
+    nextView.appendChild(cloneColumns(source, firstGroup, indexColumn, headerRow, positions['姓名']));
+    nextView.appendChild(cloneColumns(source, secondGroup, indexColumn, headerRow, positions['姓名']));
     if (view) view.replaceWith(nextView); else { const host = source.parentElement; if (host && host !== container && host.children.length === 1) host.after(nextView); else source.after(nextView); }
     container.querySelectorAll('.memory-person-two-tables').forEach(el => { if (el !== nextView) el.remove(); });
 }
@@ -82,4 +83,4 @@ function mutationIsOnlyPersonView(mutation) { const nodes = [...mutation.addedNo
 const observer = new MutationObserver(mutations => { if (!mutations.every(mutationIsOnlyPersonView)) queueRefresh(); });
 observer.observe(document.documentElement, {childList:true, subtree:true});
 queueRefresh(); setTimeout(queueRefresh,250); setTimeout(queueRefresh,600); setTimeout(queueRefresh,1200);
-console.log('[世界状态记忆表格] 人物表双行展示已加载（过滤预留空行）');
+console.log('[世界状态记忆表格] 人物表双行展示已加载（姓名为空行不展示）');
