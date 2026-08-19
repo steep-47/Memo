@@ -337,18 +337,18 @@ export async function cleanupWorldMemorySheets() {
     );
     if (confirmResult === false) return false;
 
-    // 与“手动更新记忆”完全共用同一套表格 schema / 格式来源。
-    // 职责差异只放在 summaryInput 的任务说明里，不再额外包裹或改写表格内容。
+    // 与“手动更新记忆”完全共用同一套表格 schema、提示模板和 API 选择。
+    // 职责差异只放在 summaryInput 的任务说明里，不额外包裹或改写表格内容。
     const originText = getTablePrompt(referencePiece);
     const finalPrompt = initTableData();
-    const useMainApi = USER.tableBaseSetting.use_main_api ?? true;
+    const useMainApiForStepByStep = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
 
     const r = await executeIncrementalUpdateFromSummary(
         TABLE_CLEANUP_GUIDE,
         originText,
         finalPrompt,
         referencePiece,
-        useMainApi,
+        useMainApiForStepByStep,
         USER.tableBaseSetting.bool_silent_refresh,
         false
     );
