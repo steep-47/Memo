@@ -1,36 +1,55 @@
 import { APP, USER } from '../../core/manager.js';
+import { defaultSettings } from '../../data/pluginSetting.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
-const STRONG_SINGLE_API_TEMPLATE = `# Memo 本轮任务
-你必须依次完成两个阶段：
-1. 正常生成剧情/回答正文。
-2. 正文结束后检查六张表，并用且仅用一个完整 <tableEdit>...</tableEdit> 作为本轮回复最后内容。
+const PROTOCOL_START = '[一次API固定收尾协议]';
+const PROTOCOL_END = '[/一次API固定收尾协议]';
 
-# 硬性结束协议
-- 正文结束不代表回复完成；只有输出 </tableEdit> 才代表本轮真正完成。
-- 有表格变化：在 <tableEdit> 中输出全部必要的 insertRow / updateRow / deleteRow。
+const SINGLE_API_END_PROTOCOL = `
+${PROTOCOL_START}
+# 本轮回复硬性结束协议
+- 正常生成剧情/回答正文后，必须继续检查六张表；正文结束不代表整轮回复完成。
+- 最终回复必须以且仅以一个完整 <tableEdit>...</tableEdit> 区块结束；只有输出 </tableEdit> 才代表本轮真正完成。
+- 有表格变化：在同一个 <tableEdit> 中输出本轮全部必要的 insertRow / updateRow / deleteRow。
 - 没有任何需要记录的变化：仍必须输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。
-- tableEdit 必须真实出现在最终回复文本中，不能只在思考中处理，不能用自然语言替代。
-
-# 世界状态记忆表
-## 0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件
-{{tableData}}
-
-# 可用操作
-insertRow(tableIndex:number,data:{[colIndex:number]:string|number})
-updateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})
-deleteRow(tableIndex:number,rowIndex:number)
-
-# 维护规则
-- 按0→1→2→3→4→5逐表检查；已有同一对象优先 update，禁止重复 insert。
-- 背包只在实际获得、失去、消耗或数量/状态变化时修改；只是查看、提及或持有既有物品不得重复 insert。一次性物品使用后应减少数量或删除。
-- 不猜测未知；未知信息留空。
-
-# 最终检查
-完成正文后立即执行表格检查。最终回复必须以一个完整 </tableEdit> 结束；若无变化就输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。`;
+- tableEdit 必须真实出现在最终回复文本中，不能只在思考/推理中处理，不能用自然语言替代。
+- 表格已有同一对象或状态行时继续遵守原表规则优先 update/覆盖；不得因为本协议而重复 insert。
+${PROTOCOL_END}`;
 
 function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
+}
+
+function removeOwnProtocol(text) {
+    const value = String(text || '');
+    const start = value.indexOf(PROTOCOL_START);
+    if (start < 0) return value;
+    const end = value.indexOf(PROTOCOL_END, start);
+    if (end < 0) return value.slice(0, start).trimEnd();
+    return `${value.slice(0, start)}${value.slice(end + PROTOCOL_END.length)}`.trimEnd();
+}
+
+function isMemo38Replacement(text) {
+    const value = String(text || '');
+    return value.includes('# Memo 本轮任务')
+        && value.includes('# 硬性结束协议')
+        && value.includes('# 世界状态记忆表');
+}
+
+function buildSingleApiTemplate(currentTemplate) {
+    let base = String(currentTemplate || '').trim();
+
+    // memo.38 曾把完整 message_template 整段替换掉。
+    // 若检测到该模板，恢复当前代码中的基础模板；defaultSettings 已由 memoryContentRules
+    // 同步补入角色/NPC归一等规则，避免把已有“螺丝钉”继续丢失。
+    if (!base || isMemo38Replacement(base)) {
+        base = String(defaultSettings?.message_template || '').trim();
+    }
+
+    // 本模块只拥有自己的收尾块。每次先移除旧块再追加，保证幂等；
+    // 其余表格规则、schema、身份归一规则及用户已有模板内容全部原样保留。
+    base = removeOwnProtocol(base);
+    return `${base}\n\n${SINGLE_API_END_PROTOCOL.trim()}`.trim();
 }
 
 function restoreSingleApiPrompt() {
@@ -41,10 +60,12 @@ function restoreSingleApiPrompt() {
         settings.muyoo_dataTable = {};
     }
 
-    if (settings.muyoo_dataTable.message_template !== STRONG_SINGLE_API_TEMPLATE) {
-        settings.muyoo_dataTable.message_template = STRONG_SINGLE_API_TEMPLATE;
+    const current = settings.muyoo_dataTable.message_template;
+    const next = buildSingleApiTemplate(current);
+    if (current !== next) {
+        settings.muyoo_dataTable.message_template = next;
         USER.saveSettings?.();
-        console.log('[Memo] 一次API：已应用紧凑固定tableEdit协议');
+        console.log('[Memo] 一次API：保留现有规则并追加固定tableEdit收尾协议');
     }
 }
 
@@ -58,4 +79,4 @@ if (typeof APP.eventSource.makeFirst === 'function') {
     APP.eventSource.makeFirst(promptEvent, restoreSingleApiPrompt);
 }
 
-console.log('[Memo] 一次API紧凑固定tableEdit协议已加载');
+console.log('[Memo] 一次API固定tableEdit收尾协议已加载（保留现有模板规则）');
