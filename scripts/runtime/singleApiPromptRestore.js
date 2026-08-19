@@ -11,7 +11,6 @@ ${PROTOCOL_START}
 - 正常生成剧情/回答正文后，必须继续检查六张表；正文结束不代表整轮回复完成。
 - 最终回复必须以且仅以一个完整 <tableEdit>...</tableEdit> 区块结束；只有输出 </tableEdit> 才代表本轮真正完成。
 - 有表格变化：所有 insertRow / updateRow / deleteRow 必须放在同一个 HTML 注释中，并整体包在 <tableEdit> 内，固定格式为 <tableEdit><!-- 操作代码 --></tableEdit>；禁止把函数调用裸露在正文中。
-- 尤其是新游戏、空表初始化或一次需要连续写入多条操作时，也必须保持 <tableEdit><!-- ...全部操作... --></tableEdit> 这一完整结构。
 - 没有任何需要记录的变化：仍必须输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。
 - tableEdit 必须真实出现在最终回复文本中，不能只在思考/推理中处理，不能用自然语言替代。
 - 表格已有同一对象或状态行时继续遵守原表规则优先 update/覆盖；不得因为本协议而重复 insert。
