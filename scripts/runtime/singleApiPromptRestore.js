@@ -9,11 +9,14 @@ insertRow(tableIndex:number,data:{[colIndex:number]:string|number})
 updateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})
 deleteRow(tableIndex:number,rowIndex:number)
 # 表格维护规则
+- {{tableData}}仅供内部读取和状态判断，严禁在正文中复述、复制、续写或打印任何原始表格内容。
+- 严禁把<0>、<1>、0,{...}、JSON行、表头、行数据、字段索引等内部表格表示直接输出给用户。
+- 表格变化只能通过回复末尾<tableEdit>中的insertRow/updateRow/deleteRow表达；正文中不得输出表格快照、表格分析过程或中间格式。
 - 正常完成剧情/回答正文后，必须执行表格检查；tableEdit是本轮回复的必需结束字段，不是可选附加内容。
 - 按0→1→2→3→4→5逐表检查；已有同一对象优先update，禁止重复insert。
 - 区分获得/新增与查看已有物品：仅实际获得、失去、消耗或数量变化时修改背包；只是查看、提及、持有既有物品不得重复insert。一次性物品使用后应删除或减少数量。
 - 不猜测未知；未知信息留空。
-- 最终回复必须以且仅以一个完整<tableEdit>...</tableEdit>区块结束；输出该区块前不得结束回复。
+- 正文结束后直接进入且仅进入一个完整<tableEdit>...</tableEdit>区块；正文与<tableEdit>之间不得输出任何表格内容或解释。
 - 有变化：在tableEdit中输出本轮全部必要的insertRow/updateRow/deleteRow。
 - 无变化：仍必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。
 - 操作必须真实出现在最终回复文本，不能只在思考/推理中处理，不能用自然语言替代。
