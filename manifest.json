@@ -1,10 +1,10 @@
 {
-  "display_name":"Memo",
-  "loading_order":100,
+  "display_name":"Memo SingleAPI Test",
+  "loading_order":101,
   "requires":[],
   "optional":[],
   "js":"loader.js",
   "css":"assets/styles/simple-ui.css",
   "author":"private",
-  "version":"2.2.18-memo.1"
+  "version":"2.2.18-singleapi-test"
 }
