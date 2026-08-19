@@ -52,7 +52,6 @@ function getLatestConversationTurn() {
             userIndex = i;
             break;
         }
-        // 遇到更早的 assistant，说明已经跨轮，停止向前找。
         if (chat[i]?.is_user === false) break;
     }
 
@@ -95,8 +94,10 @@ function snapshotEnabledSheets() {
 }
 
 async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purpose }) {
-    if (running) {
-        EDITOR.warning('已有记忆维护操作正在执行，请勿重复触发。');
+    if (running || globalThis.__memoIndependentRecordActive === true) {
+        EDITOR.warning(globalThis.__memoIndependentRecordActive === true
+            ? '独立记录正在执行，请稍后再进行手动记忆维护。'
+            : '已有记忆维护操作正在执行，请勿重复触发。');
         return false;
     }
 
@@ -107,8 +108,9 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
     }
 
     running = true;
+    globalThis.__memoMaintenanceActive = true;
+
     const previousPrompt = USER.tableBaseSetting.step_by_step_user_prompt;
-    const previousStepByStep = USER.tableBaseSetting.step_by_step;
     const previousSuccess = EDITOR.success;
     const beforeSnapshot = snapshotEnabledSheets();
 
@@ -162,7 +164,9 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
     } finally {
         EDITOR.success = previousSuccess;
         USER.tableBaseSetting.step_by_step_user_prompt = previousPrompt;
-        USER.tableBaseSetting.step_by_step = previousStepByStep;
+        // 常态必须回到 false，避免任何临时 step_by_step 状态泄漏。
+        USER.tableBaseSetting.step_by_step = false;
+        globalThis.__memoMaintenanceActive = false;
         running = false;
     }
 }
@@ -222,5 +226,6 @@ function interceptMaintenanceButtons(event) {
 }
 
 document.addEventListener('click', interceptMaintenanceButtons, true);
+globalThis.__memoMaintenanceActive = false;
 
 console.log('[Memo] memory maintenance roles loaded: manual update = latest-turn patch, cleanup = existing-table maintenance');
