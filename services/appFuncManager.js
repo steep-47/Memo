@@ -1,4 +1,4 @@
-import { saveSettingsDebounced, saveSettings, getSlideToggleOptions, generateRaw, saveChat, eventSource, event_types, getRequestHeaders } from '/script.js';
+import { saveSettingsDebounced, saveSettings, getSlideToggleOptions, generateRaw, saveChat, eventSource, event_types, getRequestHeaders, setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '/script.js';
 import { saveGroupChat, selected_group } from '/scripts/group-chats.js';
 import { DOMPurify, Bowser, slideToggle } from '/lib.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '/scripts/extensions.js';
@@ -30,6 +30,9 @@ const applicationFunctionManager = {
     eventSource,
     event_types,
     getRequestHeaders,
+    setExtensionPrompt,
+    extension_prompt_types,
+    extension_prompt_roles,
     saveGroupChat,
     get selected_group() { return selected_group; },
 
