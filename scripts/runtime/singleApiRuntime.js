@@ -3,13 +3,14 @@ import { getTablePrompt, handleEditStrInMessage } from '../../index.js';
 import { replaceUserTag } from '../../utils/stringUtil.js';
 
 const MEMO_MARK = '# Memo 单API记忆维护';
-const DIAG_EVENT = 'memo-single-api-diagnostic';
+const EDIT_START = 'MEMO_TABLE_EDIT_START';
+const EDIT_END = 'MEMO_TABLE_EDIT_END';
+const POLL_INTERVAL = 500;
+const POLL_TIMEOUT = 120000;
 
-function reportDiagnostic(detail) {
-    try {
-        window.dispatchEvent(new CustomEvent(DIAG_EVENT, { detail }));
-    } catch (_) {}
-}
+let pendingRun = null;
+let runSerial = 0;
+const processed = new WeakSet();
 
 function isSingleApiMode() {
     return USER?.tableBaseSetting?.step_by_step !== true;
@@ -20,55 +21,113 @@ function buildPrompt() {
     if (!tableData) return '';
 
     return replaceUserTag(`${MEMO_MARK}
-你需要在正常完成本轮剧情回复的同时，维护以下六张记忆表。不要向用户解释表格维护过程。
+你需要在正常完成本轮剧情回复的同时维护以下六张记忆表。正文照常输出，不要向用户解释记忆维护。
 
 ${tableData}
 
-# 写表格式
-仅在确有变化时，于整段回复最末尾输出一个：
-<tableEdit><!--
+# 写表协议（必须严格遵守）
+如果本轮出现任何需要新增、修改或删除的表格事实，必须在整段正文最后追加以下纯文本区块：
+${EDIT_START}
 insertRow(tableIndex,{列号:值})
 updateRow(tableIndex,rowIndex,{列号:值})
 deleteRow(tableIndex,rowIndex)
---></tableEdit>
+${EDIT_END}
 
-# 规则
+要求：
+- 只输出实际需要的操作；每条操作单独一行。
+- 不要把该区块放进代码块，不要使用HTML注释，不要改写起止标记。
+- 只要本轮有应记录变化，就必须输出该区块；完全没有变化时才可省略。
 - 检查顺序：0当前状态→1角色状态→2背包→3当前任务与约定→4人物→5历史事件。
 - 表1只记录玩家本人；NPC只进入表4。
 - 同一人物已有记录优先update，不因姓名、昵称、外号、道号、职衔或描述性称呼不同而重复insert。
 - NPC首次只有描述性称呼时可暂作姓名；正式名字确认后改用正式名字。
 - 性别只记录明确事实；未知、没有、未提及的信息留空，不猜测、不写占位词。
 - 属性统一使用“神识”；“神魂”仅在确实表示灵魂/魂魄本体时使用。
-- 没有任何变化时不要输出<tableEdit>。
-- <tableEdit>是后台机器指令，不属于正文。`);
+- ${EDIT_START} 到 ${EDIT_END} 之间只允许写 insertRow / updateRow / deleteRow。`);
 }
 
 function alreadyInjected(chat) {
     return Array.isArray(chat) && chat.some(item => String(item?.content || '').includes(MEMO_MARK));
 }
 
-function analyzeRaw(raw, source) {
-    const text = String(raw || '');
-    const hasOpenTag = /<tableEdit\b/i.test(text);
-    const hasCloseTag = /<\/tableEdit>/i.test(text);
-    const hasAction = /\b(?:insertRow|updateRow|deleteRow)\s*\(/.test(text);
-    reportDiagnostic({
-        stage: 'response',
-        source,
-        status: hasOpenTag && hasAction ? 'tableedit-detected' : 'tableedit-missing',
-        hasOpenTag,
-        hasCloseTag,
-        hasAction,
-        length: text.length,
-    });
+function getChats() {
+    return USER.getContext()?.chat || [];
 }
 
-function getLatestAssistant() {
-    const chats = USER.getContext()?.chat || [];
-    for (let i = chats.length - 1; i >= 0; i--) {
-        if (chats[i] && chats[i].is_user !== true) return { chat: chats[i], index: i };
+function getLatestAssistantAfter(minIndex = -1) {
+    const chats = getChats();
+    for (let i = chats.length - 1; i > minIndex; i--) {
+        const chat = chats[i];
+        if (chat && chat.is_user !== true) return { chat, index: i };
     }
     return { chat: null, index: -1 };
+}
+
+function normalizePlainEditBlock(chat) {
+    const raw = String(chat?.mes ?? chat?.content ?? '');
+    if (!raw.includes(EDIT_START) || !raw.includes(EDIT_END)) return false;
+
+    const start = raw.indexOf(EDIT_START);
+    const end = raw.indexOf(EDIT_END, start + EDIT_START.length);
+    if (end === -1) return false;
+
+    const actions = raw.slice(start + EDIT_START.length, end).trim();
+    const before = raw.slice(0, start).trimEnd();
+    const after = raw.slice(end + EDIT_END.length).trimStart();
+    const converted = `${before}${before ? '\n' : ''}<tableEdit><!--\n${actions}\n--></tableEdit>${after ? `\n${after}` : ''}`;
+
+    if ('mes' in chat) chat.mes = converted;
+    else chat.content = converted;
+
+    if (Array.isArray(chat.swipes) && Number.isInteger(chat.swipe_id) && chat.swipes[chat.swipe_id] === raw) {
+        chat.swipes[chat.swipe_id] = converted;
+    }
+    return true;
+}
+
+function hasCompleteEditBlock(raw) {
+    const text = String(raw || '');
+    return (text.includes(EDIT_START) && text.includes(EDIT_END)) || /<tableEdit>[\s\S]*?<\/tableEdit>/i.test(text);
+}
+
+function processAssistant(chat, source) {
+    if (!chat || chat.is_user || processed.has(chat)) return false;
+    const raw = String(chat.mes ?? chat.content ?? '');
+    if (!hasCompleteEditBlock(raw)) return false;
+
+    try {
+        normalizePlainEditBlock(chat);
+        handleEditStrInMessage(chat);
+        processed.add(chat);
+        USER.getContext()?.saveChat?.();
+        console.log(`[Memo][single-api] 已从${source}捕获并执行写表指令`);
+        return true;
+    } catch (error) {
+        console.error(`[Memo][single-api] ${source}写表解析失败:`, error);
+        return false;
+    }
+}
+
+function stopPolling(serial) {
+    if (pendingRun?.serial !== serial) return;
+    if (pendingRun.timer) clearInterval(pendingRun.timer);
+    pendingRun = null;
+}
+
+function startPolling(startIndex) {
+    const serial = ++runSerial;
+    if (pendingRun?.timer) clearInterval(pendingRun.timer);
+
+    const startedAt = Date.now();
+    pendingRun = { serial, startIndex, startedAt, timer: null };
+    pendingRun.timer = setInterval(() => {
+        if (!isSingleApiMode()) return stopPolling(serial);
+        if (Date.now() - startedAt > POLL_TIMEOUT) return stopPolling(serial);
+
+        const { chat } = getLatestAssistantAfter(startIndex);
+        if (!chat) return;
+        if (processAssistant(chat, 'chat轮询')) stopPolling(serial);
+    }, POLL_INTERVAL);
 }
 
 function onPromptReady(eventData) {
@@ -77,51 +136,28 @@ function onPromptReady(eventData) {
     if (!Array.isArray(eventData?.chat) || alreadyInjected(eventData.chat)) return;
 
     const prompt = buildPrompt();
-    if (!prompt) {
-        reportDiagnostic({ stage: 'prompt', status: 'no-prompt' });
-        return;
-    }
+    if (!prompt) return;
 
+    const startIndex = getChats().length - 1;
     eventData.chat.push({ role: 'system', content: prompt });
-    reportDiagnostic({ stage: 'prompt', status: 'injected' });
-    console.log('[Memo][single-api] 写表协议已直接注入主请求');
+    startPolling(startIndex);
+    console.log('[Memo][single-api] 代理兼容写表协议已注入主请求');
 }
 
-function onMessageRendered(chatId) {
+function tryEventChat(chatId, source) {
     if (!isSingleApiMode()) return;
     if (USER?.tableBaseSetting?.isExtensionAble === false || USER?.tableBaseSetting?.isAiWriteTable === false) return;
 
-    const chat = USER.getContext()?.chat?.[chatId];
-    if (!chat || chat.is_user) return;
-
-    analyzeRaw(chat.mes ?? chat.content ?? '', 'CHARACTER_MESSAGE_RENDERED');
-
-    try {
-        handleEditStrInMessage(chat);
-        console.log('[Memo][single-api] 主回复写表解析完成');
-    } catch (error) {
-        reportDiagnostic({ stage: 'parse', status: 'parse-error', message: String(error?.message || error) });
-        console.error('[Memo][single-api] 主回复写表解析失败:', error);
-    }
-}
-
-function onMessageReceived(chatId) {
-    if (!isSingleApiMode()) return;
-    const chat = USER.getContext()?.chat?.[chatId];
-    if (!chat || chat.is_user) return;
-    analyzeRaw(chat.mes ?? chat.content ?? '', 'MESSAGE_RECEIVED');
-}
-
-function onGenerationEnded() {
-    if (!isSingleApiMode()) return;
-    const { chat } = getLatestAssistant();
+    let chat = Number.isInteger(Number(chatId)) ? getChats()[Number(chatId)] : null;
+    if (!chat || chat.is_user) chat = getLatestAssistantAfter(pendingRun?.startIndex ?? -1).chat;
     if (!chat) return;
-    analyzeRaw(chat.mes ?? chat.content ?? '', 'GENERATION_ENDED');
+
+    if (processAssistant(chat, source) && pendingRun) stopPolling(pendingRun.serial);
 }
 
 APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
-APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, onMessageRendered);
-APP.eventSource.on(APP.event_types.MESSAGE_RECEIVED, onMessageReceived);
-APP.eventSource.on(APP.event_types.GENERATION_ENDED, onGenerationEnded);
+APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, id => tryEventChat(id, 'CHARACTER_MESSAGE_RENDERED'));
+APP.eventSource.on(APP.event_types.MESSAGE_RECEIVED, id => tryEventChat(id, 'MESSAGE_RECEIVED'));
+APP.eventSource.on(APP.event_types.GENERATION_ENDED, () => tryEventChat(undefined, 'GENERATION_ENDED'));
 
-console.log('[Memo] 单API专用运行链已加载（含多事件诊断）');
+console.log('[Memo] 单API代理兼容运行链已加载：纯文本写表协议 + 最终消息直读');
