@@ -2,7 +2,7 @@ import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
 const PREF_KEY = 'independent_record_api_enabled';
-let guardInstalled = false;
+let guardedStore = null;
 
 function getStore() {
     const root = USER?.getSettings?.();
@@ -20,10 +20,11 @@ function readEnabled() {
 
 function installStepByStepGuard() {
     const store = getStore();
-    if (!store || guardInstalled) return false;
+    if (!store) return false;
+    if (guardedStore === store) return true;
 
     // 独立记录 API 开关是 step_by_step 的唯一真值。
-    // 任何原作者控件或其他脚本直接写 step_by_step，都不能绕过这个开关。
+    // 如果 loadSettings 替换了整个设置对象，这里会在新对象上重新安装硬锁。
     if (store[PREF_KEY] !== true) store[PREF_KEY] = false;
 
     try {
@@ -34,13 +35,13 @@ function installStepByStepGuard() {
                 return store[PREF_KEY] === true;
             },
             set(value) {
-                // 不直接接受外部写入；模式只能通过 PREF_KEY / applyMode 切换。
+                // 禁止其他代码绕过独立 API 开关直接改变运行模式。
                 if ((value === true) !== (store[PREF_KEY] === true)) {
                     console.warn('[Memo] 已拦截外部 step_by_step 写入：', value);
                 }
             },
         });
-        guardInstalled = true;
+        guardedStore = store;
         return true;
     } catch (error) {
         console.error('[Memo] 安装独立 API 模式硬锁失败：', error);
@@ -68,7 +69,7 @@ function applyMode(enabled, save = true) {
     if (checkbox) checkbox.checked = value;
 
     if (save) USER.saveSettings?.();
-    console.log(`[Memo] 独立记录 API：${value ? '开启（2次API）' : '关闭（仅主API）'}`);
+    console.log(`[Memo] 独立记录 API：${value ? '开启（主API + 1次独立API）' : '关闭（仅主API）'}`);
 }
 
 function createToggle() {
@@ -120,15 +121,21 @@ installStepByStepGuard();
 
 if (!mount()) {
     const observer = new MutationObserver(() => {
+        installStepByStepGuard();
         if (mount()) observer.disconnect();
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => {
-        observer.disconnect();
-        // 再确认一次，防止原作者 loadSettings 在较晚时刻写回旧 step_by_step。
-        installStepByStepGuard();
-        applyMode(readEnabled(), false);
-    }, 10000);
+    setTimeout(() => observer.disconnect(), 10000);
 }
 
-console.log('[Memo] 独立记录 API 硬锁已加载：step_by_step 只能由该开关决定');
+// 前10秒持续检查“设置对象是否被替换”，只做本地状态同步，不发任何 API。
+let guardChecks = 0;
+const guardTimer = setInterval(() => {
+    guardChecks += 1;
+    const previous = guardedStore;
+    installStepByStepGuard();
+    if (guardedStore !== previous || guardChecks === 1) applyMode(readEnabled(), false);
+    if (guardChecks >= 40) clearInterval(guardTimer);
+}, 250);
+
+console.log('[Memo] 独立记录 API 硬锁已加载：关闭时 step_by_step 恒为 false');
