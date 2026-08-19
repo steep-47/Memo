@@ -1,0 +1,99 @@
+name: fix-rebuild-tableedit
+
+on:
+  push:
+    paths:
+      - '.fix-rebuild-tableedit-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair rebuild chain
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/runtime/absoluteRefresh.js')
+          s=p.read_text(encoding='utf-8')
+
+          # Keep the existing prompt construction, API selection, throttling and UI plumbing intact.
+          # Replace only the response/save section: rebuild now consumes the same tableEdit protocol as normal Memo filling.
+          start=s.index("        console.log('rawContent:', rawContent);")
+          end=s.index("    } catch (error) {", start)
+          old=s[start:end]
+          new=r'''        console.log('rawContent:', rawContent);
+
+        if (typeof rawContent !== 'string' || !rawContent.trim()) {
+            EDITOR.clear();
+            EDITOR.error('API响应内容无效，无法继续处理表格。');
+            return;
+        }
+
+        // 表格整理与正常填表统一使用 Memo 原生 <tableEdit> 协议。
+        // 不再把 AI 返回值当作整表 JSON 重建，避免表头被写成数据行、行号漂移和后续自动填表失效。
+        const { matches } = getTableEditTag(rawContent);
+        if (!matches || matches.length === 0) {
+            EDITOR.clear();
+            EDITOR.error('表格整理未返回有效的 <tableEdit> 操作，已保持原表不变。');
+            console.error('重整理缺少 tableEdit:', rawContent);
+            return;
+        }
+
+        // 过滤模型偶尔生成的“表头伪数据行”。只拦截 insertRow，其他 update/delete 原样保留。
+        const headerSets = latestTables.map(sheet => new Set(sheet.getHeader().map(v => String(v ?? '').trim())));
+        const filteredMatches = matches.map(block => block.replace(/insertRow\((\d+)\s*,\s*(\{[\s\S]*?\})\s*\)/g, (full, tableIndexText, dataText) => {
+            try {
+                const tableIndex = Number(tableIndexText);
+                const data = JSON5.parse(dataText);
+                const headers = headerSets[tableIndex];
+                if (!headers) return full;
+                const values = Object.values(data).map(v => String(v ?? '').trim()).filter(Boolean);
+                const looksLikeHeader = values.length > 0 && values.every(v => headers.has(v));
+                if (looksLikeHeader) {
+                    console.warn('已拦截表头伪数据行:', full);
+                    return '';
+                }
+            } catch (_) {}
+            return full;
+        })).filter(block => /(?:updateRow|insertRow|deleteRow)\s*\(/.test(block));
+
+        if (filteredMatches.length === 0) {
+            EDITOR.clear();
+            EDITOR.info('表格整理完成：没有需要执行的数据变更。');
+            return rawContent;
+        }
+
+        const { piece: currentPiece } = USER.getChatPiece();
+        if (!currentPiece) {
+            EDITOR.clear();
+            EDITOR.error('无法获取当前聊天片段，表格未修改。');
+            return;
+        }
+
+        const ok = executeTableEditActions(filteredMatches, currentPiece);
+        if (!ok) {
+            EDITOR.clear();
+            EDITOR.error('表格整理操作执行失败，已停止。');
+            return;
+        }
+
+        updateSystemMessageTableStatus();
+        USER.saveChat();
+        EDITOR.clear();
+        EDITOR.success('表格整理完成');
+        return rawContent;
+'''
+          s=s[:start]+new+s[end:]
+          p.write_text(s,encoding='utf-8')
+          PY
+
+          node --check scripts/runtime/absoluteRefresh.js
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/runtime/absoluteRefresh.js
+          git commit -m '统一表格整理为tableEdit执行链' || exit 0
+          git push
