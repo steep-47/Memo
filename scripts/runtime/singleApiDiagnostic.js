@@ -52,11 +52,19 @@ function ensureMemoPrompt(eventData) {
         }
     }
 
-    lastPromptState = { promptFound, fallbackInjected };
+    // 只为真正带入 Memo 提示的请求登记响应诊断。
+    // 新建聊天/开局欢迎语等 CHARACTER_MESSAGE_RENDERED 也会触发，
+    // 但它们并不一定对应一次聊天 API 请求，不能因此误报“提示补入失败”。
+    lastPromptState = promptFound ? { promptFound: true, fallbackInjected } : null;
 }
 
 function checkResponse(chatId) {
-    if (independentEnabled()) return;
+    if (independentEnabled() || !lastPromptState) return;
+
+    // 一次请求只诊断一次，避免状态残留到新游戏/欢迎语等后续渲染事件。
+    const promptState = lastPromptState;
+    lastPromptState = null;
+
     const chat = USER?.getContext?.()?.chat?.[chatId];
     if (!chat || chat.is_user === true) return;
 
@@ -64,13 +72,9 @@ function checkResponse(chatId) {
     const joined = matches?.join('\n') ?? '';
     if (/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined) || /NO_CHANGE/.test(joined)) return;
 
-    if (lastPromptState?.promptFound) {
-        EDITOR.warning(lastPromptState.fallbackInjected
-            ? '一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾'
-            : '一次API诊断：提示已注入，但模型未完成tableEdit收尾');
-    } else {
-        EDITOR.error('一次API诊断：Memo提示补入失败');
-    }
+    EDITOR.warning(promptState.fallbackInjected
+        ? '一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾'
+        : '一次API诊断：提示已注入，但模型未完成tableEdit收尾');
 }
 
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
