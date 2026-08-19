@@ -5,7 +5,7 @@ import { executeIncrementalUpdateFromSummary } from './absoluteRefresh.js';
 const MANUAL_UPDATE_PROMPT = JSON.stringify([
     {
         role: 'system',
-        content: `你是“手动更新记忆”助手。你的唯一职责是补记最近聊天中已经明确发生、但当前六张表可能漏记的新事实或状态变化。\n\n严格边界：\n1. 以<待补记聊天>为本次检查对象，<近期上下文>只用于消歧。\n2. 当前表格是基线：已有同一对象优先 update，真正新增才 insert，明确因本轮剧情失去/结束才 delete。\n3. 禁止借本次操作整理旧表：不要扫描或删除与本轮聊天无关的旧重复行、旧事件、旧人物、旧任务。\n4. 禁止为了“更整洁”改写没有发生事实变化的记录。\n5. 只是查看、复述、再次提及已有事实且没有变化时不操作。\n6. 不猜测未知，不把推测写入表格。\n7. 只输出一个 <tableEdit>...</tableEdit>；没有漏记或变化时输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。`
+        content: `你是“手动更新记忆”助手。你的唯一职责是补记最近一轮聊天中已经明确发生、但当前六张表可能漏记的新事实或状态变化。\n\n严格边界：\n1. 以<待补记聊天>为本次检查对象，<近期上下文>只用于消歧。\n2. 当前表格是基线：已有同一对象优先 update，真正新增才 insert，明确因本轮剧情失去/结束才 delete。\n3. 禁止借本次操作整理旧表：不要扫描或删除与本轮聊天无关的旧重复行、旧事件、旧人物、旧任务。\n4. 禁止为了“更整洁”改写没有发生事实变化的记录。\n5. 只是查看、复述、再次提及已有事实且没有变化时不操作。\n6. 不猜测未知，不把推测写入表格。\n7. 只输出一个 <tableEdit>...</tableEdit>；没有漏记或变化时输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。`
     },
     {
         role: 'user',
@@ -25,6 +25,46 @@ const TABLE_CLEANUP_PROMPT = JSON.stringify([
 ]);
 
 let running = false;
+
+function cleanChatText(text) {
+    return String(text ?? '')
+        .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
+        .replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '')
+        .trim();
+}
+
+function getLatestConversationTurn() {
+    const chat = USER.getContext()?.chat ?? [];
+    if (!Array.isArray(chat) || chat.length === 0) return '';
+
+    let assistantIndex = -1;
+    for (let i = chat.length - 1; i >= 0; i--) {
+        if (chat[i]?.is_user === false && cleanChatText(chat[i]?.mes)) {
+            assistantIndex = i;
+            break;
+        }
+    }
+    if (assistantIndex < 0) return '';
+
+    let userIndex = -1;
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+        if (chat[i]?.is_user === true && cleanChatText(chat[i]?.mes)) {
+            userIndex = i;
+            break;
+        }
+        // 遇到更早的 assistant，说明已经跨轮，停止向前找。
+        if (chat[i]?.is_user === false) break;
+    }
+
+    const parts = [];
+    if (userIndex >= 0) {
+        const userText = cleanChatText(chat[userIndex]?.mes);
+        if (userText) parts.push(`${chat[userIndex]?.name || 'user'}: ${userText}`);
+    }
+    const assistantText = cleanChatText(chat[assistantIndex]?.mes);
+    if (assistantText) parts.push(`${chat[assistantIndex]?.name || 'assistant'}: ${assistantText}`);
+    return parts.join('\n');
+}
 
 async function confirmAction(message, okButton) {
     const popup = new EDITOR.Popup(
@@ -73,12 +113,10 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
     const beforeSnapshot = snapshotEnabledSheets();
 
     try {
-        // 维护操作使用专属提示词；执行期间关闭自动 step_by_step 入口，避免并发读取临时提示词。
         USER.tableBaseSetting.step_by_step = false;
         USER.tableBaseSetting.step_by_step_user_prompt = prompt;
 
-        // 公共增量执行器固定会提示“独立填表完成”，即使响应只是 NO_CHANGE。
-        // 维护链先抑制这一个固定提示，结束后用前后快照确认是否真的改表。
+        // 公共增量执行器在 NO_CHANGE 时也会发“独立填表完成”，维护链改为按实际表格变化提示。
         EDITOR.success = (message, ...args) => {
             const text = String(message ?? '').replace(/[！!]+$/g, '').trim();
             if (text === '独立填表完成') return;
@@ -110,11 +148,7 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
             : true;
 
         if (changed) {
-            if (purpose === '手动更新记忆') {
-                EDITOR.info('手动更新记忆完成！', '', 1500);
-            } else {
-                EDITOR.info('表格整理完成！', '', 1500);
-            }
+            EDITOR.info(`${purpose}完成！`, '', 1500);
             console.log(`[Memo][${purpose}] 已确认表格发生实际变化`);
         } else {
             EDITOR.info(`${purpose}：没有需要修改的内容。`, '', 1500);
@@ -134,25 +168,21 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
 }
 
 async function runManualMemoryUpdate() {
-    const { piece } = USER.getChatPiece() || {};
-    const latestMessage = String(piece?.mes ?? '')
-        .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
-        .trim();
-
-    if (!latestMessage) {
-        EDITOR.info('当前没有可用于补记的最近聊天内容。');
+    const latestTurn = getLatestConversationTurn();
+    if (!latestTurn) {
+        EDITOR.info('当前没有可用于补记的最近一轮聊天内容。');
         return;
     }
 
     const confirmed = await confirmAction(
-        '<b>手动更新记忆</b><br>只检查最近一轮聊天中漏记的新信息或状态变化。<br><span style="opacity:.75">不会整理旧人物、旧事件或历史重复项。</span>',
+        '<b>手动更新记忆</b><br>只检查最近一轮 user + assistant 中漏记的新信息或状态变化。<br><span style="opacity:.75">不会整理旧人物、旧事件或历史重复项。</span>',
         '检查并补记'
     );
     if (!confirmed) return;
 
     await runIncrementalWithPrompt({
         prompt: MANUAL_UPDATE_PROMPT,
-        summaryChats: latestMessage,
+        summaryChats: latestTurn,
         useMainAPI: USER.tableBaseSetting.step_by_step_use_main_api ?? true,
         purpose: '手动更新记忆'
     });
@@ -181,8 +211,6 @@ function interceptMaintenanceButtons(event) {
     const cleanupButton = target.closest('#table_clear_up');
     if (!manualButton && !cleanupButton) return;
 
-    // 捕获阶段阻止原作者旧处理器，避免手动补记继续走 undoSheets，
-    // 也避免表格整理继续进入 rebuildTableActions 的整表覆盖链。
     event.preventDefault();
     event.stopImmediatePropagation();
 
@@ -195,4 +223,4 @@ function interceptMaintenanceButtons(event) {
 
 document.addEventListener('click', interceptMaintenanceButtons, true);
 
-console.log('[Memo] memory maintenance roles loaded: manual update = recent-memory patch, cleanup = existing-table maintenance');
+console.log('[Memo] memory maintenance roles loaded: manual update = latest-turn patch, cleanup = existing-table maintenance');
