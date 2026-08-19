@@ -15,6 +15,9 @@ let panStartX = 0;
 let panStartY = 0;
 let panStartOffset = 0;
 let panOffset = 0;
+let panMax = 0;
+let pendingPanOffset = null;
+let panFrame = 0;
 let horizontalPanning = false;
 let observedArea = null;
 let refreshQueued = false;
@@ -62,7 +65,6 @@ function normalizeHeader(text) {
 function cleanEmptyCell(cell) {
     if (!cell) return;
     const text = String(cell.textContent || '').trim();
-    // 这里只清理展示克隆；底层数据由记忆规则要求 AI 直接留空。
     if (/^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(text)) {
         cell.textContent = '';
     }
@@ -80,11 +82,7 @@ function cloneColumns(source, indices, indexColumn = -1) {
         for (const row of Array.from(section.rows || [])) {
             const rowClone = row.cloneNode(false);
             const cells = Array.from(row.cells || []);
-
-            if (indexColumn >= 0 && cells[indexColumn]) {
-                rowClone.appendChild(cells[indexColumn].cloneNode(true));
-            }
-
+            if (indexColumn >= 0 && cells[indexColumn]) rowClone.appendChild(cells[indexColumn].cloneNode(true));
             for (const index of indices) {
                 if (index === indexColumn || !cells[index]) continue;
                 const cell = cells[index].cloneNode(true);
@@ -118,7 +116,6 @@ function getRoleStatusSource(container) {
 }
 
 function roleTableSignature(source) {
-    // 原表只有数据真正变化时才重建两张展示表，避免观察器自激和无意义 DOM 重绘。
     return Array.from(source.rows || [])
         .map(row => Array.from(row.cells || []).map(cell => cell.textContent || '').join('\u001f'))
         .join('\u001e');
@@ -127,10 +124,8 @@ function roleTableSignature(source) {
 function splitRoleStatusTable() {
     const container = document.querySelector('#tableContainer');
     if (!container) return;
-
     const source = getRoleStatusSource(container);
     if (!source) return;
-
     const headerRow = source.querySelector('thead tr') || source.querySelector('tr');
     if (!headerRow) return;
 
@@ -148,31 +143,24 @@ function splitRoleStatusTable() {
     }
 
     source.classList.add('memory-role-status-source');
-
     const signature = roleTableSignature(source);
     let view = container.querySelector('.memory-role-status-two-tables');
     if (view?.dataset?.sourceSignature === signature) return;
 
-    // A：姓名｜种族｜年龄｜修为｜灵根/体质｜灵力｜神识
-    // B：姓名｜身体状态｜灵石｜钱财｜技能/术法｜擅长｜其他状态
     const first = Array.from({ length: spiritSense - name + 1 }, (_, i) => name + i);
     const second = [name, ...Array.from({ length: headers.length - bodyState }, (_, i) => bodyState + i)];
-
     const nextView = document.createElement('div');
     nextView.className = 'memory-role-status-two-tables';
     nextView.dataset.sourceSignature = signature;
     nextView.appendChild(cloneColumns(source, first, indexColumn));
     nextView.appendChild(cloneColumns(source, second, indexColumn));
 
-    if (view) {
-        view.replaceWith(nextView);
-    } else {
+    if (view) view.replaceWith(nextView);
+    else {
         const host = source.parentElement;
         if (host && host !== container && host.children.length === 1) host.after(nextView);
         else source.after(nextView);
     }
-
-    // 若旧版本曾残留多个展示容器，只保留当前一个。
     container.querySelectorAll('.memory-role-status-two-tables').forEach(el => {
         if (el !== nextView) el.remove();
     });
@@ -191,7 +179,6 @@ function keepDrawerFilled(area) {
 function measureTrueContentWidth(area) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer || !hasUsableWidth(area)) return 0;
-
     let widest = Math.max(area.clientWidth, 0);
     const nodes = tableContainer.querySelectorAll('*:not(.memory-role-status-source):not(.memory-role-status-source *)');
     for (const node of nodes) {
@@ -206,33 +193,43 @@ function measureTrueContentWidth(area) {
 function syncWholeCanvasWidth(area) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer || !hasUsableWidth(area)) return false;
-
     const trueWidth = measureTrueContentWidth(area);
     const viewportLogicalWidth = currentScale > 0 ? area.clientWidth / currentScale : area.clientWidth;
     const canvasWidth = Math.max(trueWidth, viewportLogicalWidth);
     if (!Number.isFinite(canvasWidth) || canvasWidth < MIN_VALID_WIDTH) return false;
-
     tableContainer.style.width = `${canvasWidth}px`;
     tableContainer.style.maxWidth = 'none';
     tableContainer.dataset.memoryCanvasWidth = String(canvasWidth);
     return true;
 }
 
-function getMaxPan(area) {
+function calculateMaxPan(area, syncWidth = true) {
     const tableContainer = area?.querySelector?.('#tableContainer');
-    if (!tableContainer || !syncWholeCanvasWidth(area)) return 0;
+    if (!tableContainer) return 0;
+    if (syncWidth && !syncWholeCanvasWidth(area)) return 0;
     const canvasWidth = Number(tableContainer.dataset.memoryCanvasWidth || tableContainer.scrollWidth || 0);
     const visualOverflow = Math.max(0, canvasWidth * currentScale - area.clientWidth);
     return currentScale > 0 ? visualOverflow / currentScale : visualOverflow;
 }
 
-function applyPan(area, offset) {
+function writePan(area, offset, maxPan = panMax) {
     const tableContainer = area?.querySelector?.('#tableContainer');
     if (!tableContainer || !hasUsableWidth(area)) return;
-    const maxPan = getMaxPan(area);
     panOffset = Math.max(-maxPan, Math.min(0, offset));
     tableContainer.style.transform = `translate3d(${panOffset}px, 0, 0)`;
     tableContainer.dataset.memoryPanX = String(panOffset);
+}
+
+function queuePan(area, offset) {
+    pendingPanOffset = offset;
+    if (panFrame) return;
+    panFrame = requestAnimationFrame(() => {
+        panFrame = 0;
+        if (!area || pendingPanOffset === null) return;
+        const nextOffset = pendingPanOffset;
+        pendingPanOffset = null;
+        writePan(area, nextOffset, panMax);
+    });
 }
 
 function applyScale(area, scale) {
@@ -242,7 +239,8 @@ function applyScale(area, scale) {
     tableContainer.style.zoom = String(currentScale);
     tableContainer.dataset.memoryPinchScale = String(currentScale);
     syncWholeCanvasWidth(area);
-    applyPan(area, panOffset);
+    panMax = calculateMaxPan(area, false);
+    writePan(area, panOffset, panMax);
     keepDrawerFilled(area);
 }
 
@@ -259,6 +257,7 @@ function onTouchStart(event) {
         horizontalPanning = false;
         panArea = null;
         syncWholeCanvasWidth(area);
+        panMax = calculateMaxPan(area, false);
         keepDrawerFilled(area);
         return;
     }
@@ -272,6 +271,7 @@ function onTouchStart(event) {
         panStartOffset = Number.isFinite(savedPan) ? savedPan : 0;
         horizontalPanning = false;
         syncWholeCanvasWidth(area);
+        panMax = calculateMaxPan(area, false);
     }
 }
 
@@ -296,7 +296,7 @@ function onTouchMove(event) {
         horizontalPanning = true;
     }
 
-    applyPan(panArea, panStartOffset + dx / currentScale);
+    queuePan(panArea, panStartOffset + dx / currentScale);
     event.preventDefault();
     event.stopPropagation();
 }
@@ -308,6 +308,12 @@ function finishTouch(event) {
         startDistance = 0;
     }
     if (!event || event.touches.length === 0) {
+        if (panFrame) {
+            cancelAnimationFrame(panFrame);
+            panFrame = 0;
+        }
+        if (panArea && pendingPanOffset !== null) writePan(panArea, pendingPanOffset, panMax);
+        pendingPanOffset = null;
         panArea = null;
         horizontalPanning = false;
     }
@@ -319,18 +325,16 @@ function refreshVisibleArea() {
     if (!hasUsableWidth(area)) return;
     keepDrawerFilled(area);
     syncWholeCanvasWidth(area);
-    applyPan(area, panOffset);
+    panMax = calculateMaxPan(area, false);
+    writePan(area, panOffset, panMax);
 }
 
 function mutationIsOnlyRoleView(mutation) {
     const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
-    return nodes.length > 0 && nodes.every(node =>
-        node.nodeType === 1 && node.matches?.('.memory-role-status-two-tables')
-    );
+    return nodes.length > 0 && nodes.every(node => node.nodeType === 1 && node.matches?.('.memory-role-status-two-tables'));
 }
 
 const mutationObserver = new MutationObserver(mutations => {
-    // 自己替换两张展示表产生的 childList 变化不再触发下一轮重建。
     if (mutations.every(mutationIsOnlyRoleView)) return;
     queueRefresh();
 });
@@ -346,4 +350,4 @@ document.addEventListener('touchend', finishTouch, { passive: true, capture: tru
 document.addEventListener('touchcancel', finishTouch, { passive: true, capture: true });
 window.addEventListener('resize', queueRefresh, { passive: true });
 
-console.log('[世界状态记忆表格] 整体缩放、横向拖动与角色双表展示已加载');
+console.log('[世界状态记忆表格] 横向拖动性能优化已加载');
