@@ -9,6 +9,7 @@ import { profile_prompts } from "../../data/profile_prompts.js";
 import { Form } from '../../components/formManager.js';
 import { refreshRebuildTemplate } from "../settings/userExtensionSetting.js"
 import { safeParse } from '../../utils/stringUtil.js';
+import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js";
 
 // 在解析响应后添加验证
 function validateActions(actions) {
@@ -459,6 +460,8 @@ async function showErrorTextPreview(text) {
 }
 
 export async function rebuildSheets() {
+    // 表格整理的唯一结构修复入口：先恢复缺失标准列，再继续原整理流程。
+    repairMissingColumnsBeforeCleanup();
     const container = document.createElement('div');
     console.log('测试开始');
 

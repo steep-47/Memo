@@ -74,16 +74,4 @@ function repairMissingColumnsBeforeCleanup() {
     return repaired;
 }
 
-// 使用捕获阶段：先修复结构，再让原作者 #table_clear_up 点击处理继续执行。
-document.addEventListener('click', event => {
-    const target = event.target?.closest?.('#table_clear_up');
-    if (!target) return;
-    try {
-        repairMissingColumnsBeforeCleanup();
-    } catch (error) {
-        console.error('[Memo] 表格结构修复失败，已保留当前表格:', error);
-        EDITOR.error('表格结构修复失败，已停止自动修复。', error.message, error);
-    }
-}, true);
-
 export { repairMissingColumnsBeforeCleanup };
