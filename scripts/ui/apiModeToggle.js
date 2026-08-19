@@ -35,10 +35,10 @@ function applyMode(enabled, { save = true } = {}) {
     if (USER?.tableBaseSetting) {
         USER.tableBaseSetting.isAiReadTable = true;
         USER.tableBaseSetting.isAiWriteTable = true;
-        // 保持原作者两种运行路径：
-        // 关闭独立 API = step_by_step false，使用原作者常规主回复注入并解析 <tableEdit>；
-        // 开启独立 API = step_by_step true，主回复只读表，回复后再独立填表。
-        USER.tableBaseSetting.injection_mode = 'deep_system';
+        // 仍走原作者运行链，只调整原作者本来就支持的注入角色：
+        // 单API用 deep_user，规避部分 OpenAI-compatible 中转站对额外 system 消息处理不一致；
+        // 独立API继续使用 deep_system 作为只读表格上下文。
+        USER.tableBaseSetting.injection_mode = value ? 'deep_system' : 'deep_user';
         USER.tableBaseSetting.deep = 0;
     }
 
@@ -109,4 +109,4 @@ function start() {
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载：关闭时使用原作者单API同步填表链路');
+console.log('[Memo] 独立记录 API 开关已加载：单API使用原作者 deep_user 注入链路');
