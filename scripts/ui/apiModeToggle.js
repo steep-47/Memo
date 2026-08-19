@@ -1,8 +1,6 @@
 import { USER } from '../../core/manager.js';
 
 const TOGGLE_ID = 'memory-independent-record-api';
-const DIAG_ID = 'memory-single-api-diagnostic';
-const DIAG_EVENT = 'memo-single-api-diagnostic';
 const PREF_KEY = 'independent_record_api_enabled';
 
 function getPrimaryStore() {
@@ -26,11 +24,6 @@ function persistPreference(enabled) {
     store[PREF_KEY] = !!enabled;
     store.step_by_step = !!enabled;
     USER.saveSettings?.();
-}
-
-function setDiagnostic(text) {
-    const el = document.getElementById(DIAG_ID);
-    if (el) el.textContent = `单API检测：${text}`;
 }
 
 function applyMode(enabled, { save = true } = {}) {
@@ -59,15 +52,9 @@ function applyMode(enabled, { save = true } = {}) {
 
     const toggle = document.querySelector(`#${TOGGLE_ID} input[type="checkbox"]`);
     if (toggle) toggle.checked = value;
-
-    const diag = document.getElementById(DIAG_ID);
-    if (diag) diag.style.display = value ? 'none' : '';
 }
 
 function createToggle() {
-    const wrapper = document.createElement('div');
-    wrapper.id = `${TOGGLE_ID}-wrapper`;
-
     const label = document.createElement('label');
     label.id = TOGGLE_ID;
     label.className = 'checkbox_label range-block justifyLeft';
@@ -86,16 +73,7 @@ function createToggle() {
 
     input.addEventListener('change', () => applyMode(input.checked, { save: true }));
     label.append(input, text, hint);
-
-    const diag = document.createElement('small');
-    diag.id = DIAG_ID;
-    diag.className = 'toggle-description justifyLeft';
-    diag.style.display = getEnabled() ? 'none' : '';
-    diag.style.margin = '4px 0 8px 32px';
-    diag.textContent = '单API检测：等待下一轮';
-
-    wrapper.append(label, diag);
-    return wrapper;
+    return label;
 }
 
 function mountToggle() {
@@ -114,24 +92,6 @@ function mountToggle() {
     applyMode(getEnabled(), { save: false });
     return true;
 }
-
-window.addEventListener(DIAG_EVENT, event => {
-    const d = event?.detail || {};
-    if (d.stage === 'prompt') {
-        setDiagnostic(d.status === 'injected' ? '写表提示已注入，等待回复' : '没有生成写表提示');
-        return;
-    }
-    if (d.stage === 'response') {
-        const source = d.source ? ` / ${d.source}` : '';
-        if (d.status === 'tableedit-detected') {
-            setDiagnostic(`检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'}${source}）`);
-        } else {
-            setDiagnostic(`未检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'} / 回复长度:${d.length ?? 0}${source}）`);
-        }
-        return;
-    }
-    if (d.stage === 'parse' && d.status === 'parse-error') setDiagnostic(`解析报错：${d.message || '未知错误'}`);
-});
 
 function start() {
     if (!mountToggle()) {
