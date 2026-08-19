@@ -1,6 +1,6 @@
 // absoluteRefresh.js
 import { BASE, DERIVED, EDITOR, SYSTEM, USER } from '../../core/manager.js';
-import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag } from "../../index.js";
+import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag, getTablePromptByPiece } from "../../index.js";
 import JSON5 from '../../utils/json5.min.mjs'
 import { updateSystemMessageTableStatus } from "../renderer/tablePushToChat.js";
 import { TableTwoStepSummary } from "./separateTableUpdate.js";
@@ -149,7 +149,7 @@ export function initRefreshTypeSelector() {
     // if (currentOptions.length !== Object.keys(profile_prompts).length) {
     //     needsUpdate = true;
     // } else {
-    //     // 检查每个选项的值和文本是否一致
+    //     // 检查每个选项的值和文本
     //     Object.entries(profile_prompts).forEach(([key, value]) => {
     //         const currentOption = currentOptions.find(opt => opt.value === key);
     //         if (!currentOption ||
@@ -224,8 +224,9 @@ export async function rebuildTableActions(force = false, silentUpdate = USER.tab
         DERIVED.any.waitingTable = latestTables;
         DERIVED.any.waitingTableIdMap = latestTables.map(table => table.uid);
 
-        const tableJson = latestTables.map((table, index) => ({...table.getReadableJson(), tableIndex: index}));
-        const tableJsonText = JSON.stringify(tableJson);
+        // 与“手动更新记忆”统一：当前表格使用 Memo 原生文本格式。
+        // 这里只统一输入表示；现有整理输出/保存链保持不变。
+        const currentTableText = getTablePromptByPiece(piece);
 
         // 提取表头信息
         const tableHeaders = latestTables.map(table => {
@@ -237,7 +238,7 @@ export async function rebuildTableActions(force = false, silentUpdate = USER.tab
         const tableHeadersText = JSON.stringify(tableHeaders);
 
         console.log('表头数据 (JSON):', tableHeadersText);
-        console.log('重整理 - 最新的表格数据:', tableJsonText);
+        console.log('重整理 - 最新的表格数据:', currentTableText);
 
         // 获取最近clear_up_stairs条聊天记录
         const chat = USER.getContext().chat;
@@ -274,7 +275,7 @@ export async function rebuildTableActions(force = false, silentUpdate = USER.tab
 
         const replacePrompt = (input) => {
             let output = input
-            output = output.replace(/\$0/g, tableJsonText);
+            output = output.replace(/\$0/g, () => currentTableText);
             output = output.replace(/\$1/g, lastChats);
             output = output.replace(/\$2/g, tableHeadersText);
             output = output.replace(/\$3/g, DERIVED.any.additionalPrompt ?? '');
@@ -290,7 +291,7 @@ export async function rebuildTableActions(force = false, silentUpdate = USER.tab
 
 
         // 搜索userPrompt中的$0和$1字段，将$0替换成originText，将$1替换成lastChats，将$2替换成空表头
-        userPrompt = userPrompt.replace(/\$0/g, tableJsonText);
+        userPrompt = userPrompt.replace(/\$0/g, () => currentTableText);
         userPrompt = userPrompt.replace(/\$1/g, lastChats);
         userPrompt = userPrompt.replace(/\$2/g, tableHeadersText);
         userPrompt = userPrompt.replace(/\$3/g, DERIVED.any.additionalPrompt ?? '');
