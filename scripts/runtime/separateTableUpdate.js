@@ -130,10 +130,6 @@ function ensureCharacterAliasColumnInSheet(sheet, referencePiece) {
     }
 }
 
-/**
- * 对自动独立填表成功后的六表做轻量结构整理。
- * 手动补记不调用本函数，避免“补漏”顺手变成“整理旧表”。
- */
 function normalizeWorldMemorySheets(referencePiece) {
     try {
         const sheets = BASE.getChatSheets?.() ?? [];
@@ -252,11 +248,6 @@ function normalizeWorldMemorySheets(referencePiece) {
     }
 }
 
-/**
- * 执行独立填表。
- * auto：正文完成后的独立记录。
- * manual：用户主动补记最近一轮漏掉的信息。
- */
 export async function TableTwoStepSummary(mode) {
     if (mode !== "manual" && (USER.tableBaseSetting.isExtensionAble === false || USER.tableBaseSetting.step_by_step === false)) return;
 
@@ -296,10 +287,6 @@ export async function TableTwoStepSummary(mode) {
     return await manualSummaryChat(todoChats, confirmResult);
 }
 
-/**
- * 手动/自动独立填表：继续复用原插件增量执行器。
- * 手动模式只补漏，不回退表格，也不执行旧表整理。
- */
 export async function manualSummaryChat(todoChats, confirmResult) {
     const { piece: referencePiece } = USER.getChatPiece();
     if (!referencePiece) {
@@ -333,9 +320,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
     return false;
 }
 
-/**
- * 表格整理：只整理当前已有记忆，使用同一个增量执行器，不再整表重建。
- */
 export async function cleanupWorldMemorySheets() {
     const { piece: referencePiece } = USER.getChatPiece();
     if (!referencePiece) {
@@ -353,7 +337,9 @@ export async function cleanupWorldMemorySheets() {
     );
     if (confirmResult === false) return false;
 
-    const originText = `${TABLE_CLEANUP_GUIDE}\n\n<当前表格>\n${getTablePrompt(referencePiece)}\n</当前表格>`;
+    // 与“手动更新记忆”完全共用同一套表格 schema / 格式来源。
+    // 职责差异只放在 summaryInput 的任务说明里，不再额外包裹或改写表格内容。
+    const originText = getTablePrompt(referencePiece);
     const finalPrompt = initTableData();
     const useMainApi = USER.tableBaseSetting.use_main_api ?? true;
 
