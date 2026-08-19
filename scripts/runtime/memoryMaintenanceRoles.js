@@ -37,6 +37,23 @@ async function confirmAction(message, okButton) {
     return !!popup.result;
 }
 
+function snapshotEnabledSheets() {
+    try {
+        return JSON.stringify(
+            (BASE.getChatSheets?.() ?? [])
+                .filter(sheet => sheet?.enable)
+                .map(sheet => ({
+                    uid: sheet.uid,
+                    name: sheet.name,
+                    content: sheet.getContent?.(true) ?? null,
+                }))
+        );
+    } catch (error) {
+        console.warn('[Memo][maintenance] 无法生成表格快照:', error);
+        return null;
+    }
+}
+
 async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purpose }) {
     if (running) {
         EDITOR.warning('已有记忆维护操作正在执行，请勿重复触发。');
@@ -52,11 +69,21 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
     running = true;
     const previousPrompt = USER.tableBaseSetting.step_by_step_user_prompt;
     const previousStepByStep = USER.tableBaseSetting.step_by_step;
+    const previousSuccess = EDITOR.success;
+    const beforeSnapshot = snapshotEnabledSheets();
 
     try {
         // 维护操作使用专属提示词；执行期间关闭自动 step_by_step 入口，避免并发读取临时提示词。
         USER.tableBaseSetting.step_by_step = false;
         USER.tableBaseSetting.step_by_step_user_prompt = prompt;
+
+        // 公共增量执行器固定会提示“独立填表完成”，即使响应只是 NO_CHANGE。
+        // 维护链先抑制这一个固定提示，结束后用前后快照确认是否真的改表。
+        EDITOR.success = (message, ...args) => {
+            const text = String(message ?? '').replace(/[！!]+$/g, '').trim();
+            if (text === '独立填表完成') return;
+            return previousSuccess.call(EDITOR, message, ...args);
+        };
 
         const originTableText = getTablePrompt(referencePiece);
         const finalPrompt = initTableData();
@@ -72,18 +99,34 @@ async function runIncrementalWithPrompt({ prompt, summaryChats, useMainAPI, purp
             false
         );
 
-        if (result === 'success') {
-            await USER.saveChat();
-            BASE.refreshContextView();
-            console.log(`[Memo][${purpose}] 增量维护完成`);
-            return true;
+        if (result !== 'success') return false;
+
+        await USER.saveChat();
+        BASE.refreshContextView();
+
+        const afterSnapshot = snapshotEnabledSheets();
+        const changed = beforeSnapshot !== null && afterSnapshot !== null
+            ? beforeSnapshot !== afterSnapshot
+            : true;
+
+        if (changed) {
+            if (purpose === '手动更新记忆') {
+                EDITOR.info('手动更新记忆完成！', '', 1500);
+            } else {
+                EDITOR.info('表格整理完成！', '', 1500);
+            }
+            console.log(`[Memo][${purpose}] 已确认表格发生实际变化`);
+        } else {
+            EDITOR.info(`${purpose}：没有需要修改的内容。`, '', 1500);
+            console.log(`[Memo][${purpose}] NO_CHANGE / 无实际表格变化`);
         }
-        return false;
+        return true;
     } catch (error) {
         console.error(`[Memo][${purpose}] 执行失败:`, error);
         EDITOR.error(`${purpose}失败`, error.message, error);
         return false;
     } finally {
+        EDITOR.success = previousSuccess;
         USER.tableBaseSetting.step_by_step_user_prompt = previousPrompt;
         USER.tableBaseSetting.step_by_step = previousStepByStep;
         running = false;
