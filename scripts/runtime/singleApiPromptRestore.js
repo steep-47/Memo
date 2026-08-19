@@ -9,23 +9,22 @@ insertRow(tableIndex:number,data:{[colIndex:number]:string|number})
 updateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})
 deleteRow(tableIndex:number,rowIndex:number)
 # 表格维护规则
-- 正常完成剧情/回答正文后，必须继续执行一次表格状态检查，不能在正文结束时直接停止。
+- 正常完成剧情/回答正文后，必须执行表格检查；tableEdit是本轮回复的必需结束字段，不是可选附加内容。
 - 按0→1→2→3→4→5逐表检查；已有同一对象优先update，禁止重复insert。
+- 区分获得/新增与查看已有物品：仅实际获得、失去、消耗或数量变化时修改背包；只是查看、提及、持有既有物品不得重复insert。一次性物品使用后应删除或减少数量。
 - 不猜测未知；未知信息留空。
-- 每一轮最终回复都必须在正文末尾输出且仅输出一个完整的<tableEdit>...</tableEdit>区块，禁止省略。
-- 如果本轮存在需要写入、更新或删除的事实，在<tableEdit>中放入实际的insertRow/updateRow/deleteRow操作。
-- 如果本轮检查后确认没有任何需要写入、更新或删除的事实，也必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>，表示已经完成检查。
-- 表格操作必须真实出现在最终回复文本中，不能只在思考/推理中处理，不能用自然语言替代。
-- 所有本轮必要操作放在同一个<tableEdit>中。
-# 固定收尾协议
-有变化时：
+- 最终回复必须以且仅以一个完整<tableEdit>...</tableEdit>区块结束；输出该区块前不得结束回复。
+- 有变化：在tableEdit中输出本轮全部必要的insertRow/updateRow/deleteRow。
+- 无变化：仍必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。
+- 操作必须真实出现在最终回复文本，不能只在思考/推理中处理，不能用自然语言替代。
+# 回复结束条件
+只有输出以下二者之一，本轮回复才算完成：
 <tableEdit>
 <!-- 实际的insertRow/updateRow/deleteRow -->
 </tableEdit>
-无变化时：
+或
 <tableEdit><!-- NO_CHANGE --></tableEdit>
-# 重要
-完成正文后不要直接结束回复；必须先输出上述tableEdit区块后才能结束。`;
+正文结束不代表任务结束；tableEdit结束标签才代表整轮回复结束。`;
 
 function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
@@ -42,7 +41,7 @@ function restoreSingleApiPrompt() {
     if (settings.muyoo_dataTable.message_template !== STRONG_SINGLE_API_TEMPLATE) {
         settings.muyoo_dataTable.message_template = STRONG_SINGLE_API_TEMPLATE;
         USER.saveSettings?.();
-        console.log('[Memo] 一次API：已应用固定tableEdit收尾协议');
+        console.log('[Memo] 一次API：已应用紧凑固定tableEdit协议');
     }
 }
 
@@ -56,4 +55,4 @@ if (typeof APP.eventSource.makeFirst === 'function') {
     APP.eventSource.makeFirst(promptEvent, restoreSingleApiPrompt);
 }
 
-console.log('[Memo] 一次API固定tableEdit协议已加载');
+console.log('[Memo] 一次API紧凑固定tableEdit协议已加载');
