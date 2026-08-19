@@ -7,4 +7,4 @@ import './scripts/runtime/singleApiDiagnostic.js?v=20260819-2345';
 import './scripts/ui/pinchZoom.js';
 import './scripts/ui/personTableSplit.js';
 import './scripts/ui/apiModeToggle.js?v=20260819-2048';
-import './scripts/ui/fillStatusColor.js';
+import './scripts/ui/fillStatusColor.js?v=20260820-0025';
