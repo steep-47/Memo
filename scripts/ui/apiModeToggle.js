@@ -28,9 +28,10 @@ function applyMode(enabled, save = true) {
     const store = getStore();
     if (!store) return;
 
-    // 复选框保存值是唯一真值。不要操作 fill_table_time，也不要触发原作者 change。
+    // 独立记录 API 使用自己的持久化开关；旧 step_by_step 不再作为模式状态保存。
+    // 它只会由 modeRuntimeControl 在受控时机短暂借用，常态必须为 false。
     store[PREF_KEY] = value;
-    USER.tableBaseSetting.step_by_step = value;
+    USER.tableBaseSetting.step_by_step = false;
 
     const checkbox = document.querySelector(`#${TOGGLE_ID} input[type="checkbox"]`);
     if (checkbox) checkbox.checked = value;
@@ -39,7 +40,7 @@ function applyMode(enabled, save = true) {
     keepConfigSectionsVisible();
 
     if (save) USER.saveSettings?.();
-    console.log(`[Memo] 独立记录 API：${value ? '开启（正文后额外1次API）' : '关闭（仅主API）'}`);
+    console.log(`[Memo] 独立记录 API：${value ? '开启（正文正常生成，随后额外1次API记录）' : '关闭（正文与填表共用1次API）'}`);
 }
 
 function createToggle() {
@@ -74,7 +75,7 @@ function mount() {
         host.insertBefore(createToggle(), fillTime.nextSibling);
     }
 
-    // 加载时按保存的复选框状态同步运行字段，但不触发原作者 UI change。
+    // 加载时只恢复我们自己的开关；旧 step_by_step 仍保持关闭。
     applyMode(readEnabled(), false);
     keepConfigSectionsVisible();
 
@@ -93,4 +94,4 @@ if (!mount()) {
     setTimeout(() => observer.disconnect(), 10000);
 }
 
-console.log('[Memo] 独立记录 API 开关已加载（单一真值模式，配置区始终显示）');
+console.log('[Memo] 独立记录 API 开关已加载（与旧 step_by_step 完全解耦）');
