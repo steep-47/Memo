@@ -1,7 +1,6 @@
 import {BASE, DERIVED, EDITOR, SYSTEM, USER} from '../../core/manager.js';
 import {updateSystemMessageTableStatus, updateAlternateTable} from "../renderer/tablePushToChat.js";
-import {modifyRebuildTemplate, newRebuildTemplate, deleteRebuildTemplate, exportRebuildTemplate, importRebuildTemplate, triggerStepByStepNow} from "../runtime/absoluteRefresh.js";
-import {cleanupWorldMemorySheets} from "../runtime/separateTableUpdate.js";
+import {rebuildSheets , modifyRebuildTemplate, newRebuildTemplate, deleteRebuildTemplate, exportRebuildTemplate, importRebuildTemplate, triggerStepByStepNow} from "../runtime/absoluteRefresh.js";
 import {generateDeviceId} from "../../utils/utility.js";
 import {updateModelList, handleApiTestRequest ,processApiKey} from "./standaloneAPI.js";
 import {filterTableDataPopup} from "../../data/pluginSetting.js";
@@ -532,7 +531,7 @@ function InitBinging() {
 
     // 开始整理表格
     $("#table_clear_up").on('click', () => {
-        cleanupWorldMemorySheets()
+        rebuildSheets()
     });
 
     // 完整重建表格（合并到上面的下拉框内）

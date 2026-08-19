@@ -81,6 +81,10 @@ function ensureCharacterAliasColumnInSheet(sheet, referencePiece) {
     }
 }
 
+/**
+ * 对已经成功写入的六表做按“表格语义”区分的轻量整理。
+ * 只处理可确定的结构规则；语义不确定时宁可保留，避免误删。
+ */
 function normalizeWorldMemorySheets(referencePiece) {
     try {
         const sheets = BASE.getChatSheets?.() ?? [];
@@ -93,9 +97,11 @@ function normalizeWorldMemorySheets(referencePiece) {
             changed = true;
         };
 
+        // 人物表结构兼容：旧聊天仅插入“别名/称呼”列，不重建、不清空其他数据。
         const personSheet = sheets.find(s => s?.name === '人物表');
         if (personSheet && ensureCharacterAliasColumnInSheet(personSheet, referencePiece)) changed = true;
 
+        // 1) 快照型：当前状态 / 角色状态，只保留最新一行。
         for (const sheetName of ['当前状态表', '角色状态表']) {
             const sheet = sheets.find(s => s?.name === sheetName);
             if (!sheet?.getContent) continue;
@@ -106,6 +112,8 @@ function normalizeWorldMemorySheets(referencePiece) {
             }
         }
 
+        // 2) 库存型：背包按“物品名+类型+状态/品质”归组。
+        // 数量能解析且单位一致时相加；不同品质/状态/单位不强制合并。
         const bagSheet = sheets.find(s => s?.name === '背包表');
         if (bagSheet?.getContent) {
             const valueSheet = bagSheet.getContent(true);
@@ -173,6 +181,7 @@ function normalizeWorldMemorySheets(referencePiece) {
             }
         }
 
+        // 3) 生命周期型：当前任务与约定，只保留尚未结束事项。
         const taskSheet = sheets.find(s => s?.name === '当前任务与约定表');
         if (taskSheet?.getContent) {
             const valueSheet = taskSheet.getContent(true);
@@ -193,12 +202,23 @@ function normalizeWorldMemorySheets(referencePiece) {
             }
         }
 
+        // 4) 实体档案型：人物是否同一实体需要语义判断。
+        // 代码层只保证“别名/称呼”字段可用；同名或不同称呼的合并由 AI 依据身份、外貌、关系、事件链判断，避免误并同名角色。
+
+        // 5) 事件归档型：历史事件不在代码层按文本相似度强制合并。
+        // 是否属于同一事件链需要语义判断，交给提示词控制“优先 update、减少流水账”。
+
         if (changed) console.log('[World Memory][normalize] 按表格类型的轻量整理完成');
     } catch (error) {
         console.warn('[World Memory][normalize] 整理失败，已跳过，不影响本轮写表:', error);
     }
 }
 
+/**
+ * 执行独立填表。
+ * auto 模式由 CHARACTER_MESSAGE_RENDERED 自动触发，必须静默执行，不能等待弹窗。
+ * manual 模式保留原来的确认弹窗。
+ */
 export async function TableTwoStepSummary(mode) {
     if (mode !== "manual" && (USER.tableBaseSetting.isExtensionAble === false || USER.tableBaseSetting.step_by_step === false)) return;
 
@@ -238,6 +258,9 @@ export async function TableTwoStepSummary(mode) {
     return await manualSummaryChat(todoChats, confirmResult);
 }
 
+/**
+ * 手动/自动独立填表：沿用原插件的增量更新核心。
+ */
 export async function manualSummaryChat(todoChats, confirmResult) {
     const { piece: initialPiece } = USER.getChatPiece();
     if (!initialPiece) {
@@ -281,10 +304,5 @@ export async function manualSummaryChat(todoChats, confirmResult) {
         if (!isAutoMode) reloadCurrentChat();
         return true;
     }
-    return false;
-}
-
-export async function cleanupWorldMemorySheets() {
-    EDITOR.warning('表格整理已临时停用：当前版本优先保证自动填表稳定。');
     return false;
 }
