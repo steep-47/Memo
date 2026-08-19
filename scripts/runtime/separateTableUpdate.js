@@ -2,29 +2,9 @@ import {BASE, DERIVED, EDITOR, SYSTEM, USER} from '../../core/manager.js';
 import { executeIncrementalUpdateFromSummary } from "./absoluteRefresh.js";
 import { newPopupConfirm } from '../../components/popupConfirm.js';
 import { reloadCurrentChat } from "/script.js"
-import {getTablePrompt,initTableData} from "../../index.js"
+import {getTablePrompt,initTableData, undoSheets} from "../../index.js"
 
 let toBeExecuted = [];
-
-const MANUAL_PATCH_GUIDE = `【手动更新记忆｜只补漏】
-只检查下面“最近一轮聊天”中已经明确发生、但当前六张表可能漏记的新事实或状态变化。
-- 当前表格是基线：已有同一对象优先 update，真正新增才 insert，明确因本轮剧情失去/结束才 delete。
-- 不整理与本轮无关的旧人物、旧事件、旧任务、旧重复项。
-- 只是再次提及或查看已有内容且没有变化时，不操作。
-- 不猜测未知。没有漏记时不要为了整理而修改表格。`;
-
-const TABLE_CLEANUP_GUIDE = `【表格整理｜只整理已有记忆】
-本次只整理当前六张表中已经存在的数据。近期聊天只能辅助理解已有记录，不得作为新增记忆来源。
-- 禁止补录表格中尚不存在的新人物、新物品、新任务、新事件或新状态。
-- 不得因为近期聊天没有提到某条旧记录就删除它。
-- 优先 update 合并重复/冗余信息；delete 只允许用于能够确认的重复、明确错误或明确失效记录。
-- 任何表都不得被整体清空；删除重复项前必须保留一条信息最完整的有效记录。
-- 当前状态表、角色状态表属于快照表：可以合并重复快照，但不得删除唯一有效行。
-- 人物只有能确认是同一实体时才合并；同名但证据不足必须保留。
-- 背包不同品质、状态或单位不要强行合并；不能因为近期没有提到就删除库存。
-- 历史事件不同阶段、不同结果不要误并；已有重要历史不能因为近期未提及而删除。
-- insert 仅允许在重组当前表中已经存在的信息且确有必要时使用，不能用于补最近剧情。
-- 语义不确定时宁可保留，不整表重建，不改表头、不改列结构。`;
 
 function InitChatForTableTwoStepSummary(chat) {
     if (chat.uid === undefined) chat.uid = SYSTEM.generateRandomString(22);
@@ -53,38 +33,6 @@ function MarkChatAsWaiting(chat, swipeUid) {
     if (!chat || !swipeUid) return;
     InitChatForTableTwoStepSummary(chat);
     chat.two_step_waiting[swipeUid] = true;
-}
-
-function getLatestConversationTurn() {
-    const chat = USER.getContext()?.chat ?? [];
-    if (!Array.isArray(chat) || chat.length === 0) return '';
-
-    let assistantIndex = -1;
-    for (let i = chat.length - 1; i >= 0; i--) {
-        if (chat[i]?.is_user === false && String(chat[i]?.mes ?? '').trim()) {
-            assistantIndex = i;
-            break;
-        }
-    }
-    if (assistantIndex < 0) return '';
-
-    let userIndex = -1;
-    for (let i = assistantIndex - 1; i >= 0; i--) {
-        if (chat[i]?.is_user === true && String(chat[i]?.mes ?? '').trim()) {
-            userIndex = i;
-            break;
-        }
-        if (chat[i]?.is_user === false) break;
-    }
-
-    const parts = [];
-    if (userIndex >= 0) {
-        const text = handleMessages(String(chat[userIndex].mes ?? '')).trim();
-        if (text) parts.push(`${chat[userIndex].name || 'user'}: ${text}`);
-    }
-    const assistantText = handleMessages(String(chat[assistantIndex].mes ?? '')).trim();
-    if (assistantText) parts.push(`${chat[assistantIndex].name || 'assistant'}: ${assistantText}`);
-    return parts.join('\n');
 }
 
 function normalizeKey(value) {
@@ -261,7 +209,7 @@ export async function TableTwoStepSummary(mode) {
         return false;
     }
 
-    const todoChats = mode === 'manual' ? (getLatestConversationTurn() || todoPiece.mes) : todoPiece.mes;
+    const todoChats = todoPiece.mes;
     console.log(`[World Memory][${mode}] 待填表内容长度:`, todoChats?.length ?? 0);
 
     if (mode !== 'manual') {
@@ -275,37 +223,49 @@ export async function TableTwoStepSummary(mode) {
         }
     }
 
-    const popupContentHtml = `<p><b>手动更新记忆</b></p><p>只检查最近一轮 user + assistant 是否有自动记录漏掉的新信息，不整理旧记忆。</p>`;
+    const popupContentHtml = `<p>累计 ${todoChats.length} 长度的文本，是否开始独立填表？</p>`;
     const confirmResult = await newPopupConfirm(
         popupContentHtml,
         "取消",
-        "检查并补记",
+        "执行填表",
         'stepwiseSummaryConfirm',
         "不再提示",
         "一直选是"
     );
 
-    console.log('newPopupConfirm result for manual memory patch:', confirmResult);
+    console.log('newPopupConfirm result for stepwise summary:', confirmResult);
     if (confirmResult === false) return false;
     return await manualSummaryChat(todoChats, confirmResult);
 }
 
 export async function manualSummaryChat(todoChats, confirmResult) {
-    const { piece: referencePiece } = USER.getChatPiece();
-    if (!referencePiece) {
+    const { piece: initialPiece } = USER.getChatPiece();
+    if (!initialPiece) {
         EDITOR.error("无法获取当前的聊天片段，操作中止。");
         return false;
     }
 
     const isAutoMode = confirmResult === 'dont_remind_active';
+    if (!isAutoMode && initialPiece.hash_sheets && Object.keys(initialPiece.hash_sheets).length > 0) {
+        console.log('[Memory Enhancement] 手动立即填表：检测到表格中有数据，执行恢复操作...');
+        try {
+            await undoSheets(0);
+            EDITOR.success('表格已恢复到上一版本。');
+        } catch (e) {
+            EDITOR.error('恢复表格失败，操作中止。', e.message, e);
+            return false;
+        }
+    }
+
+    const { piece: referencePiece } = USER.getChatPiece();
+    if (!referencePiece) return false;
+
     const originText = getTablePrompt(referencePiece);
-    const tablePrompt = initTableData();
-    const finalPrompt = isAutoMode ? tablePrompt : `${MANUAL_PATCH_GUIDE}\n\n${tablePrompt}`;
+    const finalPrompt = initTableData();
     const useMainApiForStepByStep = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
-    const summaryInput = isAutoMode ? todoChats : `${MANUAL_PATCH_GUIDE}\n\n<最近一轮聊天>\n${todoChats}\n</最近一轮聊天>`;
 
     const r = await executeIncrementalUpdateFromSummary(
-        summaryInput,
+        todoChats,
         originText,
         finalPrompt,
         referencePiece,
@@ -316,7 +276,7 @@ export async function manualSummaryChat(todoChats, confirmResult) {
 
     console.log('[World Memory] 独立填表增量更新结果:', r);
     if (r === 'success') {
-        if (isAutoMode) normalizeWorldMemorySheets(referencePiece);
+        normalizeWorldMemorySheets(referencePiece);
         await USER.saveChat();
         if (!isAutoMode) reloadCurrentChat();
         return true;
@@ -325,41 +285,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
 }
 
 export async function cleanupWorldMemorySheets() {
-    const { piece: referencePiece } = USER.getChatPiece();
-    if (!referencePiece) {
-        EDITOR.error('无法获取当前表格数据，操作中止。');
-        return false;
-    }
-
-    const confirmResult = await newPopupConfirm(
-        '<p><b>表格整理</b></p><p>只整理六张表中已有的重复、冗余或失效记录；不会补录最近剧情，也不会整表重建。</p>',
-        '取消',
-        '开始整理',
-        'worldMemoryCleanupConfirm',
-        '不再提示',
-        '一直选是'
-    );
-    if (confirmResult === false) return false;
-
-    const originText = getTablePrompt(referencePiece);
-    const finalPrompt = `${TABLE_CLEANUP_GUIDE}\n\n${initTableData()}`;
-    const useMainApiForStepByStep = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
-
-    const r = await executeIncrementalUpdateFromSummary(
-        TABLE_CLEANUP_GUIDE,
-        originText,
-        finalPrompt,
-        referencePiece,
-        useMainApiForStepByStep,
-        USER.tableBaseSetting.bool_silent_refresh,
-        false
-    );
-
-    console.log('[World Memory] 表格整理增量更新结果:', r);
-    if (r === 'success') {
-        await USER.saveChat();
-        reloadCurrentChat();
-        return true;
-    }
+    EDITOR.warning('表格整理已临时停用：当前版本优先保证自动填表稳定。');
     return false;
 }
