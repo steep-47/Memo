@@ -16,17 +16,27 @@ function readEnabled() {
     return getStore()?.[PREF_KEY] === true;
 }
 
+function keepConfigSectionsVisible() {
+    const replyOptions = document.querySelector('#reply_options');
+    const stepOptions = document.querySelector('#step_by_step_options');
+    if (replyOptions) replyOptions.style.display = '';
+    if (stepOptions) stepOptions.style.display = '';
+}
+
 function applyMode(enabled, save = true) {
     const value = enabled === true;
     const store = getStore();
     if (!store) return;
 
-    // 复选框保存值是唯一真值。不要再操作 fill_table_time，避免原作者 UI 模块被隐藏/切换。
+    // 复选框保存值是唯一真值。不要操作 fill_table_time，也不要触发原作者 change。
     store[PREF_KEY] = value;
     USER.tableBaseSetting.step_by_step = value;
 
     const checkbox = document.querySelector(`#${TOGGLE_ID} input[type="checkbox"]`);
     if (checkbox) checkbox.checked = value;
+
+    // 独立 API 模式与设置面板显隐彻底解耦：两组配置始终可见。
+    keepConfigSectionsVisible();
 
     if (save) USER.saveSettings?.();
     console.log(`[Memo] 独立记录 API：${value ? '开启（正文后额外1次API）' : '关闭（仅主API）'}`);
@@ -66,6 +76,12 @@ function mount() {
 
     // 加载时按保存的复选框状态同步运行字段，但不触发原作者 UI change。
     applyMode(readEnabled(), false);
+    keepConfigSectionsVisible();
+
+    // 原作者其他代码若随后再次改显隐，下一帧再恢复一次。
+    requestAnimationFrame(keepConfigSectionsVisible);
+    setTimeout(keepConfigSectionsVisible, 100);
+    setTimeout(keepConfigSectionsVisible, 500);
     return true;
 }
 
@@ -77,4 +93,4 @@ if (!mount()) {
     setTimeout(() => observer.disconnect(), 10000);
 }
 
-console.log('[Memo] 独立记录 API 开关已加载（单一真值模式）');
+console.log('[Memo] 独立记录 API 开关已加载（单一真值模式，配置区始终显示）');
