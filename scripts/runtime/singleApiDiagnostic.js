@@ -1,5 +1,5 @@
 import { APP, EDITOR, USER } from '../../core/manager.js';
-import { getTableEditTag } from '../../index.js';
+import { getTableEditTag, initTableData } from '../../index.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
 let lastDiag = null;
@@ -8,29 +8,71 @@ function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
 }
 
-function inspectPrompt(eventData) {
+function isMemoPrompt(content) {
+    const text = String(content ?? '');
+    return text.includes('# dataTable 世界状态记忆') ||
+        (text.includes('<tableEdit>') && text.includes('insertRow('));
+}
+
+function getRole() {
+    switch (USER.tableBaseSetting.injection_mode) {
+        case 'deep_user': return 'user';
+        case 'deep_assistant': return 'assistant';
+        case 'deep_system':
+        default: return 'system';
+    }
+}
+
+function inspectAndFallback(eventData) {
     if (independentEnabled()) {
+        lastDiag = null;
+        return;
+    }
+    if (eventData?.dryRun === true ||
+        USER.tableBaseSetting.isExtensionAble === false ||
+        USER.tableBaseSetting.isAiReadTable === false ||
+        USER.tableBaseSetting.injection_mode === 'injection_off') {
         lastDiag = null;
         return;
     }
 
     const chat = Array.isArray(eventData?.chat) ? eventData.chat : [];
-    const candidates = chat.map((m, index) => ({
-        index,
-        role: m?.role,
-        content: String(m?.content ?? ''),
-    })).filter(item =>
-        item.content.includes('# dataTable 世界状态记忆') ||
-        (item.content.includes('<tableEdit>') && item.content.includes('insertRow('))
-    );
+    let hitIndex = chat.findLastIndex?.(m => isMemoPrompt(m?.content)) ?? -1;
+    if (hitIndex < 0) {
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (isMemoPrompt(chat[i]?.content)) {
+                hitIndex = i;
+                break;
+            }
+        }
+    }
 
-    const hit = candidates.at(-1) || null;
+    let fallbackInjected = false;
+    if (hitIndex < 0) {
+        try {
+            const promptContent = initTableData(eventData);
+            if (promptContent && promptContent.trim()) {
+                const message = { role: getRole(), content: promptContent };
+                const deep = Number(USER.tableBaseSetting.deep) || 0;
+                if (deep <= 0 || deep >= chat.length) chat.push(message);
+                else chat.splice(-deep, 0, message);
+                hitIndex = deep <= 0 || deep >= chat.length ? chat.length - 1 : Math.max(0, chat.length - deep - 1);
+                fallbackInjected = true;
+                console.warn('[Memo诊断] 原作者注入缺失，已在最终请求阶段补入 Memo 提示');
+            }
+        } catch (error) {
+            console.error('[Memo诊断] 最终请求 fallback 注入失败', error);
+        }
+    }
+
+    const hit = hitIndex >= 0 ? chat[hitIndex] : null;
     lastDiag = {
         promptFound: !!hit,
-        promptIndex: hit?.index ?? -1,
+        fallbackInjected,
+        promptIndex: hitIndex,
         promptRole: hit?.role ?? '',
         chatLength: chat.length,
-        promptTail: hit ? hit.content.slice(-600) : '',
+        promptTail: hit ? String(hit.content ?? '').slice(-600) : '',
         capturedAt: Date.now(),
     };
 
@@ -61,13 +103,20 @@ function inspectResponse(chatId) {
     if (hasExecutableCode) return;
 
     if (lastDiag?.promptFound) {
-        EDITOR.warning('一次API诊断：提示已注入，但模型未输出填表代码');
+        EDITOR.warning(lastDiag.fallbackInjected
+            ? '一次API诊断：已补入Memo提示，但模型未输出填表代码'
+            : '一次API诊断：提示已注入，但模型未输出填表代码');
     } else {
-        EDITOR.error('一次API诊断：Memo提示未进入最终请求');
+        EDITOR.error('一次API诊断：Memo提示补入失败');
     }
 }
 
-APP.eventSource.on(APP.event_types.CHAT_COMPLETION_PROMPT_READY, inspectPrompt);
+const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
+APP.eventSource.on(promptEvent, inspectAndFallback);
+// 必须放到该事件最后：先让原作者正常注入；只有仍然缺失时才 fallback，避免重复。
+if (typeof APP.eventSource.makeLast === 'function') {
+    APP.eventSource.makeLast(promptEvent, inspectAndFallback);
+}
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, inspectResponse);
 
-console.log('[Memo] 一次API诊断模块已加载');
+console.log('[Memo] 一次API最终请求 fallback + 诊断模块已加载');
