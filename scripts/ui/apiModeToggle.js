@@ -35,7 +35,10 @@ function applyMode(enabled, { save = true } = {}) {
     if (USER?.tableBaseSetting) {
         USER.tableBaseSetting.isAiReadTable = true;
         USER.tableBaseSetting.isAiWriteTable = true;
-        USER.tableBaseSetting.injection_mode = value ? 'deep_system' : 'injection_off';
+        // 保持原作者两种运行路径：
+        // 关闭独立 API = step_by_step false，使用原作者常规主回复注入并解析 <tableEdit>；
+        // 开启独立 API = step_by_step true，主回复只读表，回复后再独立填表。
+        USER.tableBaseSetting.injection_mode = 'deep_system';
         USER.tableBaseSetting.deep = 0;
     }
 
@@ -69,7 +72,7 @@ function createToggle() {
 
     const hint = document.createElement('small');
     hint.className = 'toggle-description justifyLeft';
-    hint.textContent = '（关闭：每轮共用 1 次 API；开启：正文后额外调用 1 次 API 单独记录）';
+    hint.textContent = '（关闭：原作者单API同步填表；开启：正文后额外调用1次API独立记录）';
 
     input.addEventListener('change', () => applyMode(input.checked, { save: true }));
     label.append(input, text, hint);
@@ -106,4 +109,4 @@ function start() {
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载：单API/独立API使用互斥注入路径');
+console.log('[Memo] 独立记录 API 开关已加载：关闭时使用原作者单API同步填表链路');
