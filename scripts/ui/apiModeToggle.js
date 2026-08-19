@@ -21,9 +21,16 @@ function applyMode(enabled, save = true) {
     const store = getStore();
     if (!store) return;
 
-    // 这里只保存用户选择并同步原作者设置，不再 defineProperty、不拦截原作者写入。
+    // 这里只保存用户选择并同步原作者设置，不拦截原作者运行链。
     store[PREF_KEY] = value;
     USER.tableBaseSetting.step_by_step = value;
+
+    // 单 API 模式下把原作者表格提示放到聊天最末端（depth 0）。
+    // 不改变独立填表请求本身；独立模式仍沿用原作者两步流程。
+    if (!value) {
+        USER.tableBaseSetting.injection_mode = 'deep_system';
+        USER.tableBaseSetting.deep = 0;
+    }
 
     const fillTime = document.querySelector('#fill_table_time');
     if (fillTime) fillTime.value = value ? 'after' : 'chat';
@@ -37,7 +44,7 @@ function applyMode(enabled, save = true) {
     if (checkbox) checkbox.checked = value;
 
     if (save) USER.saveSettings?.();
-    console.log(`[Memo] 独立记录 API：${value ? '开启（主API + 1次独立API）' : '关闭（仅主API）'}`);
+    console.log(`[Memo] 独立记录 API：${value ? '开启（主API + 1次独立API）' : '关闭（仅主API，填表提示 depth=0）'}`);
 }
 
 function createToggle() {
