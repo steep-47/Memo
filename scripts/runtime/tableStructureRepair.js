@@ -18,9 +18,10 @@ function repairMissingColumnsBeforeCleanup() {
 
     const repaired = [];
 
-    sheets.forEach((sheet, tableIndex) => {
-        const structure = structures.find(item => item.tableIndex === tableIndex)
-            || structures.find(item => item.tableName === sheet.name);
+    sheets.forEach((sheet, enabledIndex) => {
+        // 先按表名匹配，避免禁用某张表后 enabledIndex 与原 tableIndex 错位。
+        const structure = structures.find(item => item.tableName === sheet.name)
+            || structures.find(item => item.tableIndex === enabledIndex);
         const standardHeaders = Array.isArray(structure?.columns)
             ? structure.columns.map(v => String(v ?? '').trim()).filter(Boolean)
             : [];
@@ -52,7 +53,11 @@ function repairMissingColumnsBeforeCleanup() {
 
         sheet.rebuildHashSheetByValueSheet(valueSheet);
         sheet.save(piece, true);
-        repaired.push({ tableIndex, tableName: sheet.name, missingHeaders });
+        repaired.push({
+            tableIndex: structure?.tableIndex ?? enabledIndex,
+            tableName: sheet.name,
+            missingHeaders,
+        });
     });
 
     if (repaired.length > 0) {
