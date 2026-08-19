@@ -35,15 +35,18 @@ function applyMode(enabled, { save = true } = {}) {
     if (USER?.tableBaseSetting) {
         USER.tableBaseSetting.isAiReadTable = true;
         USER.tableBaseSetting.isAiWriteTable = true;
-        // 仍走原作者运行链，只调整原作者本来就支持的注入角色：
-        // 单API用 deep_user，规避部分 OpenAI-compatible 中转站对额外 system 消息处理不一致；
-        // 独立API继续使用 deep_system 作为只读表格上下文。
+        // 保留原作者运行链，只在单API下改用其原生支持的 deep_user 角色。
+        // deep=1 与原作者默认一致：表格提示插在最后一条实际用户消息之前，
+        // 不让表格提示成为请求中最后一条消息。
         USER.tableBaseSetting.injection_mode = value ? 'deep_system' : 'deep_user';
-        USER.tableBaseSetting.deep = 0;
+        USER.tableBaseSetting.deep = 1;
     }
 
     const fillTime = document.querySelector('#fill_table_time');
     if (fillTime) fillTime.value = value ? 'after' : 'chat';
+
+    const injectionMode = document.querySelector('#dataTable_injection_mode');
+    if (injectionMode) injectionMode.value = value ? 'deep_system' : 'deep_user';
 
     const replyOptions = document.querySelector('#reply_options');
     const stepOptions = document.querySelector('#step_by_step_options');
@@ -109,4 +112,4 @@ function start() {
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载：单API使用原作者 deep_user 注入链路');
+console.log('[Memo] 独立记录 API 开关已加载：原作者链路 + deep=1；单API使用 deep_user');
