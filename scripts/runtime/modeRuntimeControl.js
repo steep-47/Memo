@@ -1,4 +1,4 @@
-import { APP, USER } from '../../core/manager.js';
+import { APP, EDITOR, USER } from '../../core/manager.js';
 import { TableTwoStepSummary } from './separateTableUpdate.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
@@ -27,6 +27,8 @@ function preparePromptMode() {
 
 /**
  * 正文已经生成并准备落地时，必须先恢复普通模式。
+ * 该监听器被放到 CHARACTER_MESSAGE_RENDERED 最前面，因此原作者的
+ * onMessageReceived 不会误认为当前仍处于 step_by_step，从而不会抢先重生成。
  */
 function beforeRendered() {
     forceNormalMode();
@@ -40,19 +42,11 @@ function beforeRendered() {
 function triggerIndependentRecord(chatId) {
     if (!readEnabled() || independentRunActive || !USER?.tableBaseSetting) return;
 
-    // 手动补记/表格整理会临时借用原作者独立填表提示字段。
-    // 如果恰好撞上正文落地，延后独立记录，避免两条链互相污染 Prompt。
-    if (globalThis.__memoMaintenanceActive === true) {
-        setTimeout(() => triggerIndependentRecord(chatId), 300);
-        return;
-    }
-
     const chat = USER?.getContext?.()?.chat?.[chatId];
     if (!chat || chat.is_user === true || handled.has(chat)) return;
 
     handled.add(chat);
     independentRunActive = true;
-    globalThis.__memoIndependentRecordActive = true;
 
     let task;
     try {
@@ -61,17 +55,17 @@ function triggerIndependentRecord(chatId) {
     } catch (error) {
         handled.delete(chat);
         independentRunActive = false;
-        globalThis.__memoIndependentRecordActive = false;
         console.error('[Memo] 独立记录 API 启动失败:', error);
         return;
     } finally {
+        // 绝不让旧 step_by_step 状态泄漏到正文流程或下一轮请求。
         forceNormalMode();
     }
 
     Promise.resolve(task)
         .then((result) => {
             if (result === true) {
-                // 成功提示由 executeIncrementalUpdateFromSummary 统一发出；这里不重复提示。
+                EDITOR.success('独立填表完成！');
                 console.log('[Memo] 独立记录 API：本轮记录完成');
             } else {
                 handled.delete(chat);
@@ -84,7 +78,6 @@ function triggerIndependentRecord(chatId) {
         })
         .finally(() => {
             independentRunActive = false;
-            globalThis.__memoIndependentRecordActive = false;
             forceNormalMode();
         });
 }
@@ -104,7 +97,7 @@ if (typeof APP.eventSource.makeLast === 'function') {
     APP.eventSource.makeLast(renderedEvent, triggerIndependentRecord);
 }
 
+// 插件加载和切换设置后，常态始终保持普通模式；true 只允许短暂存在于上述两个受控入口。
 forceNormalMode();
-globalThis.__memoIndependentRecordActive = false;
 
 console.log('[Memo] 独立记录 API 已与 step_by_step 解耦：正文正常生成，落地后额外记录一次');
