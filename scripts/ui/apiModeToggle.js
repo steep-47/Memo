@@ -36,11 +36,8 @@ function setDiagnostic(text) {
 function applyMode(enabled, { save = true } = {}) {
     const value = !!enabled;
 
-    if (save) {
-        persistPreference(value);
-    } else if (USER?.tableBaseSetting) {
-        USER.tableBaseSetting.step_by_step = value;
-    }
+    if (save) persistPreference(value);
+    else if (USER?.tableBaseSetting) USER.tableBaseSetting.step_by_step = value;
 
     if (USER?.tableBaseSetting) {
         USER.tableBaseSetting.isAiReadTable = true;
@@ -54,7 +51,6 @@ function applyMode(enabled, { save = true } = {}) {
 
     const replyOptions = document.querySelector('#reply_options');
     const stepOptions = document.querySelector('#step_by_step_options');
-
     if (replyOptions) replyOptions.style.display = value ? 'none' : '';
     if (stepOptions) {
         stepOptions.classList.toggle('memory-independent-record-off', !value);
@@ -105,15 +101,12 @@ function createToggle() {
 function mountToggle() {
     const fillTime = document.querySelector('#fill_table_time');
     if (!fillTime) return false;
-
     const host = fillTime.parentElement;
     if (!host) return false;
 
     if (!document.getElementById(TOGGLE_ID)) {
         const toggle = createToggle();
-        const runTitle = Array.from(host.querySelectorAll('h4')).find(el =>
-            String(el.textContent || '').includes('运行策略')
-        );
+        const runTitle = Array.from(host.querySelectorAll('h4')).find(el => String(el.textContent || '').includes('运行策略'));
         if (runTitle) runTitle.after(toggle);
         else host.insertBefore(toggle, host.firstChild);
     }
@@ -129,16 +122,15 @@ window.addEventListener(DIAG_EVENT, event => {
         return;
     }
     if (d.stage === 'response') {
+        const source = d.source ? ` / ${d.source}` : '';
         if (d.status === 'tableedit-detected') {
-            setDiagnostic(`检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'}）`);
+            setDiagnostic(`检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'}${source}）`);
         } else {
-            setDiagnostic(`未检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'} / 回复长度:${d.length ?? 0}）`);
+            setDiagnostic(`未检测到 tableEdit（标签:${d.hasOpenTag ? '有' : '无'} / 指令:${d.hasAction ? '有' : '无'} / 回复长度:${d.length ?? 0}${source}）`);
         }
         return;
     }
-    if (d.stage === 'parse' && d.status === 'parse-error') {
-        setDiagnostic(`解析报错：${d.message || '未知错误'}`);
-    }
+    if (d.stage === 'parse' && d.status === 'parse-error') setDiagnostic(`解析报错：${d.message || '未知错误'}`);
 });
 
 function start() {
@@ -150,9 +142,7 @@ function start() {
         setTimeout(() => observer.disconnect(), 10000);
     }
 
-    [0, 50, 200, 500, 1000, 2000].forEach(delay => {
-        setTimeout(() => applyMode(getEnabled(), { save: false }), delay);
-    });
+    [0, 50, 200, 500, 1000, 2000].forEach(delay => setTimeout(() => applyMode(getEnabled(), { save: false }), delay));
 }
 
 start();
