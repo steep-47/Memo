@@ -22,22 +22,24 @@ function buildPrompt() {
     if (!tableData) return '';
 
     return replaceUserTag(`${MEMO_MARK}
-你需要在正常完成本轮剧情回复的同时维护以下六张记忆表。正文照常输出，不要向用户解释记忆维护。
+你需要在正常完成本轮剧情回复的同时维护以下六张记忆表。不要向用户解释记忆维护。
 
 ${tableData}
 
 # 强制输出协议
-本轮回复无论是否发生状态变化，正文结束后都必须追加且只能追加一个以下区块，不能省略：
+本轮回复必须先输出记忆区块，再开始剧情正文。记忆区块必须是整段回复最前面的内容，禁止放到正文末尾：
 ${EDIT_START}
 （这里写 insertRow / updateRow / deleteRow；如果本轮确实没有任何应记录变化，只写 ${NO_CHANGE}）
 ${EDIT_END}
+随后立即继续正常剧情正文。
 
 硬性要求：
-- 每一轮都必须输出 ${EDIT_START} 与 ${EDIT_END}，不得自行判断为“无需输出”。
+- 回复的第一个非空内容必须是 ${EDIT_START}，在 ${EDIT_END} 之前禁止输出任何剧情正文。
+- 每一轮都必须输出 ${EDIT_START} 与 ${EDIT_END}，不得省略。
 - 有任何应记录变化时，区块内必须写实际操作，每条操作单独一行。
 - 完全没有变化时，区块内必须且只能写 ${NO_CHANGE}。
 - 不要使用代码块，不要使用 HTML 注释，不要改写起止标记。
-- 在输出 ${EDIT_END} 之前，不得结束本轮回复。
+- 输出 ${EDIT_END} 后再开始剧情正文。
 - 检查顺序：0当前状态→1角色状态→2背包→3当前任务与约定→4人物→5历史事件。
 - 表1只记录玩家本人；NPC只进入表4。
 - 同一人物已有记录优先 update，不因姓名、昵称、外号、道号、职衔或描述性称呼不同而重复 insert。
@@ -96,18 +98,18 @@ function normalizePlainEditBlock(chat) {
     const block = extractPlainEditBlock(raw);
     if (!block) return { found: false, hasActions: false };
 
-    const before = raw.slice(0, block.start).trimEnd();
+    const before = raw.slice(0, block.start).trim();
     const after = raw.slice(block.afterEnd).trimStart();
     const hasActions = /\b(?:insertRow|updateRow|deleteRow)\s*\(/.test(block.actions);
 
     if (!hasActions) {
-        // 无变化区块只用于约束模型输出，落地后从用户可见正文中完全移除。
-        const cleaned = `${before}${after ? `${before ? '\n' : ''}${after}` : ''}`;
+        const cleaned = [before, after].filter(Boolean).join('\n');
         setRaw(chat, cleaned, raw);
         return { found: true, hasActions: false };
     }
 
-    const converted = `${before}${before ? '\n' : ''}<tableEdit><!--\n${block.actions}\n--></tableEdit>${after ? `\n${after}` : ''}`;
+    // 转回原插件协议供现有解析器执行。区块位于正文开头也可正常解析。
+    const converted = `${before ? `${before}\n` : ''}<tableEdit><!--\n${block.actions}\n--></tableEdit>${after ? `\n${after}` : ''}`;
     setRaw(chat, converted, raw);
     return { found: true, hasActions: true };
 }
@@ -133,7 +135,7 @@ function processAssistant(chat, source) {
         if (shouldExecute) handleEditStrInMessage(chat);
         processed.add(chat);
         USER.getContext()?.saveChat?.();
-        console.log(`[Memo][single-api] 已从${source}捕获本轮记忆区块${shouldExecute ? '并执行写表' : '（无变化）'}`);
+        console.log(`[Memo][single-api] 已从${source}捕获开头记忆区块${shouldExecute ? '并执行写表' : '（无变化）'}`);
         return true;
     } catch (error) {
         console.error(`[Memo][single-api] ${source}写表解析失败:`, error);
@@ -176,7 +178,7 @@ function appendUserReminder(chat) {
     for (let i = chat.length - 1; i >= 0; i--) {
         const item = chat[i];
         if (item?.role !== 'user' || typeof item?.content !== 'string') continue;
-        item.content += `\n\n[Memo内部要求：本轮正常完成剧情后，必须在回复最末尾输出 ${EDIT_START} 到 ${EDIT_END}。有变化写表格操作；完全无变化只写 ${NO_CHANGE}。不要在正文解释此要求。]`;
+        item.content += `\n\n[Memo内部要求：回复必须以 ${EDIT_START} 开头，在 ${EDIT_END} 后再写剧情正文。有变化写表格操作；完全无变化只写 ${NO_CHANGE}。不要解释此要求。]`;
         return;
     }
 }
@@ -190,14 +192,10 @@ function onPromptReady(eventData) {
     if (!prompt) return;
 
     const startIndex = getChats().length - 1;
-
-    // 兼容中转站：不再追加第二个 system message，而是并入请求原本的主 system。
     mergeIntoPrimarySystem(eventData.chat, prompt);
-    // 再给本轮 user 消息一个极短提醒，防止兼容层弱化 system 指令。
     appendUserReminder(eventData.chat);
-
     startPolling(startIndex);
-    console.log('[Memo][single-api] 强制记忆协议已合并进主 system，并附加本轮 user 提醒');
+    console.log('[Memo][single-api] 开头记忆协议已合并进主 system，并附加本轮 user 提醒');
 }
 
 function tryEventChat(chatId, source) {
@@ -216,4 +214,4 @@ APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, id => tryEventCha
 APP.eventSource.on(APP.event_types.MESSAGE_RECEIVED, id => tryEventChat(id, 'MESSAGE_RECEIVED'));
 APP.eventSource.on(APP.event_types.GENERATION_ENDED, () => tryEventChat(undefined, 'GENERATION_ENDED'));
 
-console.log('[Memo] 单API代理兼容运行链已加载：主system合并 + user提醒 + 强制每轮记忆区块');
+console.log('[Memo] 单API代理兼容运行链已加载：记忆区块前置 + 主system合并 + 最终消息直读');
