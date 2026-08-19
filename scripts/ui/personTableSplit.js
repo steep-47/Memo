@@ -13,6 +13,14 @@ function getPersonSource(container) {
     return null;
 }
 function sourceSignature(source) { return Array.from(source.rows || []).map(row => Array.from(row.cells || []).map(cell => cell.textContent || '').join('\u001f')).join('\u001e'); }
+function rowHasRealContent(row, indexColumn, headerRow) {
+    if (row === headerRow) return true;
+    return Array.from(row.cells || []).some((cell, index) => {
+        if (index === indexColumn) return false;
+        const text = String(cell.textContent || '').trim();
+        return text !== '' && !/^(无|暂无|没有|未知|未记录|未提及|无数据|N\/A|NA|null|undefined|-|—|--|空)$/i.test(text);
+    });
+}
 function appendVirtualCell(rowClone, isHeaderRow, text, templateCell) {
     const cell = templateCell ? templateCell.cloneNode(true) : document.createElement(isHeaderRow ? 'th' : 'td');
     cell.removeAttribute('id'); cell.textContent = isHeaderRow ? text : ''; rowClone.appendChild(cell);
@@ -24,6 +32,8 @@ function cloneColumns(source, descriptors, indexColumn, headerRow) {
         if (!['THEAD','TBODY','TFOOT'].includes(section.tagName)) continue;
         const sectionClone = section.cloneNode(false);
         for (const row of Array.from(section.rows || [])) {
+            // 底层表格可能保留预留空行；展示层直接跳过，不删除底层数据。
+            if (!rowHasRealContent(row, indexColumn, headerRow)) continue;
             const rowClone = row.cloneNode(false), cells = Array.from(row.cells || []), isHeaderRow = row === headerRow;
             const templateCell = cells.find((cell, index) => index !== indexColumn && !!cell) || null;
             if (indexColumn >= 0 && cells[indexColumn]) rowClone.appendChild(cells[indexColumn].cloneNode(true));
@@ -72,4 +82,4 @@ function mutationIsOnlyPersonView(mutation) { const nodes = [...mutation.addedNo
 const observer = new MutationObserver(mutations => { if (!mutations.every(mutationIsOnlyPersonView)) queueRefresh(); });
 observer.observe(document.documentElement, {childList:true, subtree:true});
 queueRefresh(); setTimeout(queueRefresh,250); setTimeout(queueRefresh,600); setTimeout(queueRefresh,1200);
-console.log('[世界状态记忆表格] 人物表双行展示已加载（含性别）');
+console.log('[世界状态记忆表格] 人物表双行展示已加载（过滤预留空行）');
