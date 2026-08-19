@@ -35,10 +35,9 @@ function applyMode(enabled, { save = true } = {}) {
     if (USER?.tableBaseSetting) {
         USER.tableBaseSetting.isAiReadTable = true;
         USER.tableBaseSetting.isAiWriteTable = true;
-        // 保留原作者运行链，只在单API下改用其原生支持的 deep_user 角色。
-        // deep=1 与原作者默认一致：表格提示插在最后一条实际用户消息之前，
-        // 不让表格提示成为请求中最后一条消息。
-        USER.tableBaseSetting.injection_mode = value ? 'deep_system' : 'deep_user';
+        // 恢复原作者默认注入行为。API开关只负责切换 step_by_step，
+        // 不再尝试用 deep_user / injection_off 等方式改写原作者单API链。
+        USER.tableBaseSetting.injection_mode = 'deep_system';
         USER.tableBaseSetting.deep = 1;
     }
 
@@ -46,7 +45,7 @@ function applyMode(enabled, { save = true } = {}) {
     if (fillTime) fillTime.value = value ? 'after' : 'chat';
 
     const injectionMode = document.querySelector('#dataTable_injection_mode');
-    if (injectionMode) injectionMode.value = value ? 'deep_system' : 'deep_user';
+    if (injectionMode) injectionMode.value = 'deep_system';
 
     const replyOptions = document.querySelector('#reply_options');
     const stepOptions = document.querySelector('#step_by_step_options');
@@ -112,4 +111,4 @@ function start() {
 }
 
 start();
-console.log('[Memo] 独立记录 API 开关已加载：原作者链路 + deep=1；单API使用 deep_user');
+console.log('[Memo] 独立记录 API 开关已加载：恢复原作者 deep_system + deep=1；仅切换 step_by_step');
