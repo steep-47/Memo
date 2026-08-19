@@ -3,6 +3,13 @@ import { getTablePrompt, handleEditStrInMessage } from '../../index.js';
 import { replaceUserTag } from '../../utils/stringUtil.js';
 
 const MEMO_MARK = '# Memo 单API记忆维护';
+const DIAG_EVENT = 'memo-single-api-diagnostic';
+
+function reportDiagnostic(detail) {
+    try {
+        window.dispatchEvent(new CustomEvent(DIAG_EVENT, { detail }));
+    } catch (_) {}
+}
 
 function isSingleApiMode() {
     return USER?.tableBaseSetting?.step_by_step !== true;
@@ -46,9 +53,13 @@ function onPromptReady(eventData) {
     if (!Array.isArray(eventData?.chat) || alreadyInjected(eventData.chat)) return;
 
     const prompt = buildPrompt();
-    if (!prompt) return;
+    if (!prompt) {
+        reportDiagnostic({ stage: 'prompt', status: 'no-prompt' });
+        return;
+    }
 
     eventData.chat.push({ role: 'system', content: prompt });
+    reportDiagnostic({ stage: 'prompt', status: 'injected' });
     console.log('[Memo][single-api] 写表协议已直接注入主请求');
 }
 
@@ -59,10 +70,24 @@ function onMessageRendered(chatId) {
     const chat = USER.getContext()?.chat?.[chatId];
     if (!chat || chat.is_user) return;
 
+    const raw = String(chat.mes ?? chat.content ?? '');
+    const hasOpenTag = /<tableEdit\b/i.test(raw);
+    const hasCloseTag = /<\/tableEdit>/i.test(raw);
+    const hasAction = /\b(?:insertRow|updateRow|deleteRow)\s*\(/.test(raw);
+    reportDiagnostic({
+        stage: 'response',
+        status: hasOpenTag && hasAction ? 'tableedit-detected' : 'tableedit-missing',
+        hasOpenTag,
+        hasCloseTag,
+        hasAction,
+        length: raw.length,
+    });
+
     try {
         handleEditStrInMessage(chat);
         console.log('[Memo][single-api] 主回复写表解析完成');
     } catch (error) {
+        reportDiagnostic({ stage: 'parse', status: 'parse-error', message: String(error?.message || error) });
         console.error('[Memo][single-api] 主回复写表解析失败:', error);
     }
 }
