@@ -1,3 +1,4 @@
+import './scripts/ui/apiDiagnostics.js';
 import './scripts/runtime/apiModeBridge.js';
 import './index.js';
 import './scripts/runtime/memoryContentRules.js';
