@@ -58,7 +58,15 @@ function patchSettings(settings) {
 
     fixPlayerSchema(settings);
     fixPersonSchema(settings);
-    if ('message_template' in settings) settings.message_template = appendOnce(settings.message_template);
+
+    if ('message_template' in settings) {
+        const currentTemplate = String(settings.message_template || '');
+        // 迁移我们此前过度精简的单API提示词。原作者式完整协议对模型遵循更稳定。
+        if (currentTemplate.includes('# dataTable 世界状态记忆') && !currentTemplate.includes('## 用途')) {
+            settings.message_template = defaultSettings.message_template;
+        }
+        settings.message_template = appendOnce(settings.message_template);
+    }
     if ('refresh_system_message_template' in settings) settings.refresh_system_message_template = appendOnce(settings.refresh_system_message_template);
     if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendOnce(settings.refresh_user_message_template);
 }
