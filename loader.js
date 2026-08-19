@@ -1,7 +1,7 @@
 import './index.js';
 import './scripts/runtime/memoryContentRules.js';
 import './scripts/runtime/modeRuntimeControl.js?v=20260819-2048';
-import './scripts/runtime/singleApiPromptRestore.js?v=20260819-2345';
+import './scripts/runtime/singleApiPromptRestore.js?v=20260820-0015';
 import './scripts/runtime/singleApiFinish.js?v=20260819-2325';
 import './scripts/runtime/singleApiDiagnostic.js?v=20260819-2345';
 import './scripts/ui/pinchZoom.js';
