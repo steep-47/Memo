@@ -39,16 +39,46 @@ function getFailureDiagnostic(text) {
     const length = value.length;
     const tail = compactTail(value);
 
-    if (hasOpen && !hasClose) {
-        return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
-    }
-    if (!hasOpen && hasClose) {
-        return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
-    }
-    if (!hasOpen && !hasClose) {
-        return `无tableEdit｜回复${length}字｜末尾：${tail}`;
-    }
+    if (hasOpen && !hasClose) return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
+    if (!hasOpen && hasClose) return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
+    if (!hasOpen && !hasClose) return `无tableEdit｜回复${length}字｜末尾：${tail}`;
     return `tableEdit格式/内容未被识别｜回复${length}字｜末尾：${tail}`;
+}
+
+function makeRequestSnapshot(chat) {
+    const messages = Array.isArray(chat) ? chat : [];
+    const memoIndexes = [];
+    const reminderIndexes = [];
+
+    messages.forEach((message, index) => {
+        const content = String(message?.content ?? '');
+        if (isMemoPrompt(content)) memoIndexes.push(index);
+        if (content.includes(FINAL_REMINDER_MARKER)) reminderIndexes.push(index);
+    });
+
+    const lastIndex = messages.length - 1;
+    const reminderIndex = reminderIndexes.length ? reminderIndexes[reminderIndexes.length - 1] : -1;
+    const memoIndex = memoIndexes.length ? memoIndexes[memoIndexes.length - 1] : -1;
+    const lastRole = lastIndex >= 0 ? String(messages[lastIndex]?.role ?? '?') : '无';
+    const reminderIsLast = reminderIndex === lastIndex;
+    const afterReminder = reminderIndex >= 0 ? Math.max(0, lastIndex - reminderIndex) : -1;
+
+    return {
+        messageCount: messages.length,
+        memoIndex,
+        reminderIndex,
+        reminderIsLast,
+        afterReminder,
+        lastRole,
+    };
+}
+
+function snapshotSummary(snapshot) {
+    if (!snapshot) return '请求快照=无';
+    const pos = index => index >= 0 ? `${index + 1}/${snapshot.messageCount}` : '无';
+    const last = snapshot.reminderIsLast ? '收尾提示=最后一条✓' : '收尾提示=非最后一条✗';
+    const after = snapshot.afterReminder >= 0 ? `其后${snapshot.afterReminder}条` : '其后未知';
+    return `${last}｜messages=${snapshot.messageCount}｜Memo=${pos(snapshot.memoIndex)}｜收尾=${pos(snapshot.reminderIndex)}｜${after}｜末条role=${snapshot.lastRole}`;
 }
 
 function ensureMemoPrompt(eventData) {
@@ -81,23 +111,18 @@ function ensureMemoPrompt(eventData) {
         }
     }
 
-    // 主 Memo 提示仍负责表格规则本身。这里不重复规则，只把一次回复明确拆成
-    // “正文 -> Memo收尾”两个连续输出阶段，降低模型在正文/选项/留言处自然停笔的概率。
-    // 这仍然只是同一次请求中的最后一条 system message，不产生额外 API。
     if (promptFound && !chat.some(message => String(message?.content ?? '').includes(FINAL_REMINDER_MARKER))) {
         chat.push({ role: 'system', content: FINAL_REMINDER });
     }
 
-    // 只为真正带入 Memo 提示的请求登记响应诊断。
-    // 新建聊天/开局欢迎语等 CHARACTER_MESSAGE_RENDERED 也会触发，
-    // 但它们并不一定对应一次聊天 API 请求，不能因此误报“提示补入失败”。
-    lastPromptState = promptFound ? { promptFound: true, fallbackInjected } : null;
+    // 在真正发送前记录最终 messages 的位置关系；只观测，不修改请求内容。
+    const requestSnapshot = promptFound ? makeRequestSnapshot(chat) : null;
+    lastPromptState = promptFound ? { promptFound: true, fallbackInjected, requestSnapshot } : null;
 }
 
 function checkResponse(chatId) {
     if (independentEnabled() || !lastPromptState) return;
 
-    // 一次请求只诊断一次，避免状态残留到新游戏/欢迎语等后续渲染事件。
     const promptState = lastPromptState;
     lastPromptState = null;
 
@@ -110,9 +135,10 @@ function checkResponse(chatId) {
     if (/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined) || /NO_CHANGE/.test(joined)) return;
 
     const detail = getFailureDiagnostic(responseText);
+    const request = snapshotSummary(promptState.requestSnapshot);
     EDITOR.warning(promptState.fallbackInjected
-        ? `一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾｜${detail}`
-        : `一次API诊断：提示已注入，但模型未完成tableEdit收尾｜${detail}`);
+        ? `一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾｜${detail}｜${request}`
+        : `一次API诊断：提示已注入，但模型未完成tableEdit收尾｜${detail}｜${request}`);
 }
 
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
