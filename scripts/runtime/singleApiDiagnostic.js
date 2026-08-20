@@ -4,8 +4,8 @@ import { getTableEditTag, initTableData } from '../../index.js';
 const PREF_KEY = 'independent_record_api_enabled';
 let lastPromptState = null;
 
-const FINAL_REMINDER_MARKER = '[Memo最终收尾]';
-const FINAL_REMINDER = `${FINAL_REMINDER_MARKER}\n正文、状态栏、选项、留言等内容写完后不要结束回复。最后必须再输出且仅输出一个完整<tableEdit>作为整轮回复结尾：有变化写insertRow/updateRow/deleteRow；无变化写<tableEdit><!-- NO_CHANGE --></tableEdit>。只有输出</tableEdit>后本轮才结束。`;
+const FINAL_REMINDER_MARKER = '[Memo最终输出阶段]';
+const FINAL_REMINDER = `${FINAL_REMINDER_MARKER}\n本轮输出固定分为两个连续阶段：\n阶段1：正常完成正文、状态栏、选项、留言等全部可见内容。\n阶段2：紧接阶段1，执行Memo表格更新并输出<tableEdit>...</tableEdit>。阶段2是本轮回复的一部分，不是附加任务，也不是下一轮。即使没有任何表格变化，也必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。\n禁止在阶段1结束回复；</tableEdit>是唯一允许的整轮结束位置。`;
 
 function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
@@ -55,9 +55,9 @@ function ensureMemoPrompt(eventData) {
         }
     }
 
-    // 主 Memo 提示负责“如何判断/如何填表”；这里额外把一个极短的结束条件
-    // 放到最终 messages 尾部，只负责防止模型把正文/选项的自然结束误当成整轮结束。
-    // 仍属于同一次请求，不触发任何额外 API。
+    // 主 Memo 提示仍负责表格规则本身。这里不重复规则，只把一次回复明确拆成
+    // “正文 -> Memo收尾”两个连续输出阶段，降低模型在正文/选项/留言处自然停笔的概率。
+    // 这仍然只是同一次请求中的最后一条 system message，不产生额外 API。
     if (promptFound && !chat.some(message => String(message?.content ?? '').includes(FINAL_REMINDER_MARKER))) {
         chat.push({ role: 'system', content: FINAL_REMINDER });
     }
