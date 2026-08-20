@@ -25,6 +25,32 @@ function getRole() {
     }
 }
 
+function compactTail(text, maxLength = 90) {
+    const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '（空）';
+    const tail = normalized.slice(-maxLength);
+    return tail.replace(/[<>]/g, ch => ch === '<' ? '‹' : '›');
+}
+
+function getFailureDiagnostic(text) {
+    const value = String(text ?? '');
+    const hasOpen = /<tableEdit(?:\s|>)/i.test(value);
+    const hasClose = /<\/tableEdit\s*>/i.test(value);
+    const length = value.length;
+    const tail = compactTail(value);
+
+    if (hasOpen && !hasClose) {
+        return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
+    }
+    if (!hasOpen && hasClose) {
+        return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
+    }
+    if (!hasOpen && !hasClose) {
+        return `无tableEdit｜回复${length}字｜末尾：${tail}`;
+    }
+    return `tableEdit格式/内容未被识别｜回复${length}字｜末尾：${tail}`;
+}
+
 function ensureMemoPrompt(eventData) {
     if (independentEnabled() ||
         eventData?.dryRun === true ||
@@ -78,13 +104,15 @@ function checkResponse(chatId) {
     const chat = USER?.getContext?.()?.chat?.[chatId];
     if (!chat || chat.is_user === true) return;
 
-    const { matches } = getTableEditTag(String(chat.mes ?? ''));
+    const responseText = String(chat.mes ?? '');
+    const { matches } = getTableEditTag(responseText);
     const joined = matches?.join('\n') ?? '';
     if (/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined) || /NO_CHANGE/.test(joined)) return;
 
+    const detail = getFailureDiagnostic(responseText);
     EDITOR.warning(promptState.fallbackInjected
-        ? '一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾'
-        : '一次API诊断：提示已注入，但模型未完成tableEdit收尾');
+        ? `一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾｜${detail}`
+        : `一次API诊断：提示已注入，但模型未完成tableEdit收尾｜${detail}`);
 }
 
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
