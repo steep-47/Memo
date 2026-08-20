@@ -4,6 +4,8 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 const PREF_KEY = 'independent_record_api_enabled';
 const PROTOCOL_START = '[一次API固定收尾协议]';
 const PROTOCOL_END = '[/一次API固定收尾协议]';
+const LEGACY_OUTPUT_RULE = '- 正文后仅在确有表格操作时输出<tableEdit><!-- 函数调用 --></tableEdit>。所有必要表格操作放在同一个<tableEdit>中。';
+const UNIFIED_OUTPUT_RULE = '- 正文后必须以一个完整<tableEdit>结束：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。';
 
 const SINGLE_API_END_PROTOCOL = `
 ${PROTOCOL_START}
@@ -29,6 +31,14 @@ function removeOwnProtocol(text) {
     return `${value.slice(0, start)}${value.slice(end + PROTOCOL_END.length)}`.trimEnd();
 }
 
+function normalizeOutputRule(text) {
+    const value = String(text || '');
+    if (value.includes(LEGACY_OUTPUT_RULE)) {
+        return value.replace(LEGACY_OUTPUT_RULE, UNIFIED_OUTPUT_RULE);
+    }
+    return value;
+}
+
 function isMemo38Replacement(text) {
     const value = String(text || '');
     return value.includes('# Memo 本轮任务')
@@ -46,9 +56,9 @@ function buildSingleApiTemplate(currentTemplate) {
         base = String(defaultSettings?.message_template || '').trim();
     }
 
-    // 本模块只拥有自己的收尾块。每次先移除旧块再追加，保证幂等；
-    // 其余表格规则、schema、身份归一规则及用户已有模板内容全部原样保留。
-    base = removeOwnProtocol(base);
+    // 先消除旧模板中“仅有变化才输出tableEdit”的冲突规则，
+    // 再追加唯一的固定收尾协议。这样每轮只有一个结论：有变化写操作，无变化写NO_CHANGE。
+    base = normalizeOutputRule(removeOwnProtocol(base));
     return `${base}\n\n${SINGLE_API_END_PROTOCOL.trim()}`.trim();
 }
 
@@ -65,7 +75,7 @@ function restoreSingleApiPrompt() {
     if (current !== next) {
         settings.muyoo_dataTable.message_template = next;
         USER.saveSettings?.();
-        console.log('[Memo] 一次API：保留现有规则并追加固定tableEdit收尾协议');
+        console.log('[Memo] 一次API：已统一tableEdit收尾规则并保留现有模板');
     }
 }
 
@@ -79,4 +89,4 @@ if (typeof APP.eventSource.makeFirst === 'function') {
     APP.eventSource.makeFirst(promptEvent, restoreSingleApiPrompt);
 }
 
-console.log('[Memo] 一次API固定tableEdit收尾协议已加载（保留现有模板规则）');
+console.log('[Memo] 一次API固定tableEdit收尾协议已加载（冲突规则已统一）');
