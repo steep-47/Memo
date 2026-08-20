@@ -2,7 +2,7 @@ import { APP, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag, initTableData } from '../../index.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
-let pendingPromptStates = [];
+let lastPromptState = null;
 
 const FINAL_REMINDER_MARKER = '[Memo最终输出阶段]';
 const FINAL_REMINDER = `${FINAL_REMINDER_MARKER}\n本轮输出固定分为两个连续阶段：\n阶段1：正常完成正文、状态栏、选项、留言等全部可见内容。\n阶段2：紧接阶段1，执行Memo表格更新并输出<tableEdit>...</tableEdit>。阶段2是本轮回复的一部分，不是附加任务，也不是下一轮。即使没有任何表格变化，也必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。\n禁止在阶段1结束回复；</tableEdit>是唯一允许的整轮结束位置。`;
@@ -28,7 +28,8 @@ function getRole() {
 function compactTail(text, maxLength = 90) {
     const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
     if (!normalized) return '（空）';
-    return normalized.slice(-maxLength).replace(/[<>]/g, ch => ch === '<' ? '‹' : '›');
+    const tail = normalized.slice(-maxLength);
+    return tail.replace(/[<>]/g, ch => ch === '<' ? '‹' : '›');
 }
 
 function getFailureDiagnostic(text) {
@@ -37,40 +38,17 @@ function getFailureDiagnostic(text) {
     const hasClose = /<\/tableEdit\s*>/i.test(value);
     const length = value.length;
     const tail = compactTail(value);
-    if (hasOpen && !hasClose) return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
-    if (!hasOpen && hasClose) return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
-    if (!hasOpen && !hasClose) return `无tableEdit｜回复${length}字｜末尾：${tail}`;
+
+    if (hasOpen && !hasClose) {
+        return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
+    }
+    if (!hasOpen && hasClose) {
+        return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
+    }
+    if (!hasOpen && !hasClose) {
+        return `无tableEdit｜回复${length}字｜末尾：${tail}`;
+    }
     return `tableEdit格式/内容未被识别｜回复${length}字｜末尾：${tail}`;
-}
-
-function makeRequestSnapshot(chat) {
-    const messages = Array.isArray(chat) ? chat : [];
-    const memoIndexes = [];
-    const reminderIndexes = [];
-    messages.forEach((message, index) => {
-        const content = String(message?.content ?? '');
-        if (isMemoPrompt(content)) memoIndexes.push(index);
-        if (content.includes(FINAL_REMINDER_MARKER)) reminderIndexes.push(index);
-    });
-    const lastIndex = messages.length - 1;
-    const reminderIndex = reminderIndexes.length ? reminderIndexes[reminderIndexes.length - 1] : -1;
-    const memoIndex = memoIndexes.length ? memoIndexes[memoIndexes.length - 1] : -1;
-    return {
-        messageCount: messages.length,
-        memoIndex,
-        reminderIndex,
-        reminderIsLast: reminderIndex === lastIndex,
-        afterReminder: reminderIndex >= 0 ? Math.max(0, lastIndex - reminderIndex) : -1,
-        lastRole: lastIndex >= 0 ? String(messages[lastIndex]?.role ?? '?') : '无',
-    };
-}
-
-function snapshotSummary(snapshot) {
-    if (!snapshot) return '请求快照=无';
-    const pos = index => index >= 0 ? `${index + 1}/${snapshot.messageCount}` : '无';
-    const last = snapshot.reminderIsLast ? '收尾提示=最后一条✓' : '收尾提示=非最后一条✗';
-    const after = snapshot.afterReminder >= 0 ? `其后${snapshot.afterReminder}条` : '其后未知';
-    return `${last}｜messages=${snapshot.messageCount}｜Memo=${pos(snapshot.memoIndex)}｜收尾=${pos(snapshot.reminderIndex)}｜${after}｜末条role=${snapshot.lastRole}`;
 }
 
 function ensureMemoPrompt(eventData) {
@@ -78,7 +56,10 @@ function ensureMemoPrompt(eventData) {
         eventData?.dryRun === true ||
         USER.tableBaseSetting.isExtensionAble === false ||
         USER.tableBaseSetting.isAiReadTable === false ||
-        USER.tableBaseSetting.injection_mode === 'injection_off') return;
+        USER.tableBaseSetting.injection_mode === 'injection_off') {
+        lastPromptState = null;
+        return;
+    }
 
     const chat = Array.isArray(eventData?.chat) ? eventData.chat : [];
     let promptFound = chat.some(message => isMemoPrompt(message?.content));
@@ -100,40 +81,38 @@ function ensureMemoPrompt(eventData) {
         }
     }
 
+    // 主 Memo 提示仍负责表格规则本身。这里不重复规则，只把一次回复明确拆成
+    // “正文 -> Memo收尾”两个连续输出阶段，降低模型在正文/选项/留言处自然停笔的概率。
+    // 这仍然只是同一次请求中的最后一条 system message，不产生额外 API。
     if (promptFound && !chat.some(message => String(message?.content ?? '').includes(FINAL_REMINDER_MARKER))) {
         chat.push({ role: 'system', content: FINAL_REMINDER });
     }
 
-    if (promptFound) {
-        pendingPromptStates.push({ fallbackInjected, requestSnapshot: makeRequestSnapshot(chat), createdAt: Date.now() });
-        // 正常一次只会留一项；保留少量队列可避免相邻请求覆盖，同时防止异常事件无限堆积。
-        if (pendingPromptStates.length > 8) pendingPromptStates.splice(0, pendingPromptStates.length - 8);
-    }
+    // 只为真正带入 Memo 提示的请求登记响应诊断。
+    // 新建聊天/开局欢迎语等 CHARACTER_MESSAGE_RENDERED 也会触发，
+    // 但它们并不一定对应一次聊天 API 请求，不能因此误报“提示补入失败”。
+    lastPromptState = promptFound ? { promptFound: true, fallbackInjected } : null;
 }
 
 function checkResponse(chatId) {
-    if (independentEnabled() || pendingPromptStates.length === 0) return;
+    if (independentEnabled() || !lastPromptState) return;
+
+    // 一次请求只诊断一次，避免状态残留到新游戏/欢迎语等后续渲染事件。
+    const promptState = lastPromptState;
+    lastPromptState = null;
 
     const chat = USER?.getContext?.()?.chat?.[chatId];
-    // 关键修复：无关渲染、用户消息、欢迎语等不再提前消费诊断状态。
     if (!chat || chat.is_user === true) return;
 
-    // 丢弃过旧状态，避免跨很久的历史渲染误配；正常请求远低于这个窗口。
-    const now = Date.now();
-    pendingPromptStates = pendingPromptStates.filter(state => now - state.createdAt < 5 * 60 * 1000);
-    if (pendingPromptStates.length === 0) return;
-
-    const promptState = pendingPromptStates.shift();
     const responseText = String(chat.mes ?? '');
     const { matches } = getTableEditTag(responseText);
     const joined = matches?.join('\n') ?? '';
     if (/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined) || /NO_CHANGE/.test(joined)) return;
 
     const detail = getFailureDiagnostic(responseText);
-    const request = snapshotSummary(promptState.requestSnapshot);
     EDITOR.warning(promptState.fallbackInjected
-        ? `一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾｜${detail}｜${request}`
-        : `一次API诊断：提示已注入，但模型未完成tableEdit收尾｜${detail}｜${request}`);
+        ? `一次API诊断：已补入Memo提示，但模型未完成tableEdit收尾｜${detail}`
+        : `一次API诊断：提示已注入，但模型未完成tableEdit收尾｜${detail}`);
 }
 
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
