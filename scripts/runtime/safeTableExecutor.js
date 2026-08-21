@@ -144,6 +144,12 @@ function applyAction(action) {
     cell.newAction(Cell.CellAction.deleteSelfRow, {}, false);
 }
 
+function saveSnapshot(piece, sheets = BASE.getChatSheets?.() ?? []) {
+    if (!piece) return false;
+    for (const sheet of sheets) sheet?.save?.(piece, true);
+    return true;
+}
+
 export function parseMemoTableEdit(raw) {
     const blocks = normalizeBlocks(raw);
     if (!blocks.length) return { ok:false, noChange:false, actions:[], error:'没有tableEdit内容' };
@@ -167,11 +173,14 @@ export function parseMemoTableEdit(raw) {
 export function executeMemoTableEdit(raw, piece = null) {
     const parsed = parseMemoTableEdit(raw);
     if (!parsed.ok) return { ok:false, changed:false, noChange:false, count:0, error:parsed.error };
-    if (parsed.noChange) return { ok:true, changed:false, noChange:true, count:0, error:'' };
+    const targetPiece = piece || USER.getChatPiece?.()?.piece;
+    if (!targetPiece) return { ok:false, changed:false, noChange:false, count:0, error:'无法获取当前聊天片段，未保存' };
+    if (parsed.noChange) {
+        saveSnapshot(targetPiece);
+        return { ok:true, changed:false, noChange:true, count:0, error:'' };
+    }
     try {
         for (const action of parsed.actions) applyAction(action);
-        const targetPiece = piece || USER.getChatPiece?.()?.piece;
-        if (!targetPiece) return { ok:false, changed:false, noChange:false, count:0, error:'无法获取当前聊天片段，未保存' };
         const touched = new Set(parsed.actions.map(action => action.sheet));
         touched.forEach(sheet => sheet.save(targetPiece, true));
         return { ok:true, changed:true, noChange:false, count:parsed.actions.length, error:'' };
