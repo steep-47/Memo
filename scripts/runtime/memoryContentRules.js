@@ -3,107 +3,21 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js';
 import { ensureSevenTableWorld, normalizeSettingsStructure } from './sevenTableMigration.js';
 
-const RULE_MARK = '[角色身份归一规则]';
-const NPC_ANCHOR_MARK = '[NPC长期发展锚点规则]';
-const PLAYER_COLUMNS = ['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
-
-const compactRules = `\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC。\n- NPC身份与稳定识别信息进入表4“人物主表”；NPC最新发展状态进入表5“人物发展表”；重大历史节点进入表6“历史事件表”。\n- 表4与表5通过“姓名”关联同一NPC；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC首次只有描述性称呼时可暂作姓名；正式名字出现后更新人物主表姓名，人物发展表同步使用正式姓名。真实昵称/外号/道号/稳定职衔写入表4“别名/称呼”。\n- 性别只记录剧情已明确确认的信息；未明确时留空，不根据姓名、外貌或称呼猜测。\n- 身份证据不足时不要强行合并；确认同一人物后，表4与表5各只保留一条对应记录。\n- 所有属性统一使用“神识”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写占位词，也不得猜测。\n`;
-
-const npcAnchorRules = `\n${NPC_ANCHOR_MARK}\n- Memo只保存NPC长期发展锚点，不自行模拟离线成长，不为NPC成长额外编造事实或记录流水账。\n- 表4“人物主表”负责识别NPC是谁：姓名、性别、别名/称呼、身份/所属、外貌特征、性格、与玩家关系、重要信息。\n- 表5“人物发展表”负责NPC最后有效发展锚点：姓名、修为、主要能力、当前地点、年龄或最后确认时间、当前重要状态、主要目标/重要事项。\n- NPC再次进入当前剧情时，联合读取表4该NPC主记录 + 表5最新发展锚点 + 表6相关重大历史，作为正文模型离线发展推演起点。\n- 正文确认新的修为、地点、年龄/时间、状态、目标等后，update表5原行形成新锚点；身份/所属、关系或长期重要信息变化时同步update表4。新锚点取代旧状态，禁止从旧时期重复结算。\n- 表6只记录影响未来推演的重要节点：突破/失败、势力加入退出、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争/宗门覆灭导致处境改变、死亡等。普通修炼、日常生活、微小财富变化不记录。\n- 表5最新状态与表6历史事件冲突时，以时间更晚且已明确发生的事实为准。\n`;
-
-function replaceMarkedBlock(text, mark, block) {
-    const value = String(text || '');
-    if (!value.includes(mark)) return value + block;
-    const escaped = mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return value.replace(new RegExp(`\\n${escaped}[\\s\\S]*?(?=\\n#|\\n\\[[^\\n]+\\]|$)`), block.trimEnd());
-}
-function appendRules(text) {
-    return replaceMarkedBlock(replaceMarkedBlock(text, RULE_MARK, compactRules), NPC_ANCHOR_MARK, npcAnchorRules);
-}
-
-function preserveSingleApiProtocol(oldText, nextText) {
-    const value = String(oldText || '');
-    const start = value.indexOf('[一次API固定收尾协议]');
-    if (start < 0) return nextText;
-    const endMark = '[/一次API固定收尾协议]';
-    const end = value.indexOf(endMark, start);
-    if (end < 0) return nextText;
-    const block = value.slice(start, end + endMark.length);
-    return `${String(nextText || '').trim()}\n\n${block}`.trim();
-}
-
-function upgradeKnownOldPrompts(settings) {
-    const message = String(settings?.message_template || '');
-    if (message.includes('## 表格：0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件')
-        || message.includes('六张表维护当前事实状态')) {
-        settings.message_template = preserveSingleApiProtocol(message, defaultSettings.message_template);
-    }
-
-    const refreshSystem = String(settings?.refresh_system_message_template || '');
-    if (refreshSystem.includes('人物表保存NPC最后有效发展锚点') || refreshSystem.includes('现有六张表')) {
-        settings.refresh_system_message_template = defaultSettings.refresh_system_message_template;
-    }
-
-    const refreshUser = String(settings?.refresh_user_message_template || '');
-    if (refreshUser.includes('4人物→5历史事件') || refreshUser.includes('六张表')) {
-        settings.refresh_user_message_template = defaultSettings.refresh_user_message_template;
-    }
-}
-
-function patchPrompts(settings) {
-    if (!settings || typeof settings !== 'object') return;
-    normalizeSettingsStructure(settings);
-    if (settings !== defaultSettings) upgradeKnownOldPrompts(settings);
-    if ('message_template' in settings) settings.message_template = appendRules(settings.message_template);
-    if ('refresh_system_message_template' in settings) settings.refresh_system_message_template = appendRules(settings.refresh_system_message_template);
-    if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendRules(settings.refresh_user_message_template);
-}
-
-function normalized(values) { return (values || []).map(value => String(value || '').trim()); }
-
-function migrateLegacyPlayerSheet() {
-    try {
-        const sheet = BASE.getChatSheets().find(item => item?.name === '角色状态表');
-        if (!sheet) return false;
-        const header = normalized(sheet.getHeader?.() || []);
-        if (header.length === PLAYER_COLUMNS.length && PLAYER_COLUMNS.every((v, i) => header[i] === v)) return false;
-        const old = PLAYER_COLUMNS.filter(col => col !== '性别');
-        if (header.length !== old.length || !old.every((v, i) => header[i] === v)) return false;
-        const valueSheet = sheet.getContent?.(true);
-        if (!Array.isArray(valueSheet) || !valueSheet.length) return false;
-        const migrated = valueSheet.map((row, rowIndex) => {
-            const next = Array.isArray(row) ? row.slice() : [];
-            next.splice(2, 0, rowIndex === 0 ? '性别' : '');
-            return next;
-        });
-        sheet.rebuildHashSheetByValueSheet(migrated);
-        sheet.markPositionCacheDirty?.();
-        sheet.save(undefined, true);
-        USER.saveChat();
-        return true;
-    } catch (error) {
-        console.warn('[Memo] 角色状态表旧结构迁移失败，保留原数据', error);
-        return false;
-    }
-}
-
+const RULE_MARK='[角色身份归一规则]'; const NPC_ANCHOR_MARK='[NPC长期发展锚点规则]';
+const PLAYER_COLUMNS=['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
+const compactRules=`\n${RULE_MARK}\n- 表1“角色状态表”仅记录<user>/玩家本人，禁止写入任何NPC。\n- NPC身份与稳定识别信息进入表4“人物主表”；NPC最新发展状态进入表5“人物发展表”；重大历史节点进入表6“历史事件表”。\n- 表4与表5通过“姓名”关联同一NPC；昵称、外号、道号、职衔、描述性称呼不得因此新建重复角色。\n- NPC首次只有描述性称呼时可暂作姓名；正式名字出现后更新人物主表姓名，人物发展表同步使用正式姓名。真实昵称/外号/道号/稳定职衔写入表4“别名/称呼”。\n- 性别只记录剧情已明确确认的信息；未明确时留空，不根据姓名、外貌或称呼猜测。\n- 身份证据不足时不要强行合并；确认同一人物后，表4与表5各只保留一条对应记录。\n- 所有属性统一使用“神识”；“神魂”仅在确实指灵魂/魂魄本体时使用。\n- 未知、没有、未提及的内容一律留空，不写占位词，也不得猜测。\n`;
+const npcAnchorRules=`\n${NPC_ANCHOR_MARK}\n- Memo只保存NPC长期发展锚点，不自行模拟离线成长，不为NPC成长额外编造事实或记录流水账。\n- 表4“人物主表”负责识别NPC是谁：姓名、性别、别名/称呼、身份/所属、外貌特征、性格、与玩家关系、重要信息。\n- 表5“人物发展表”负责NPC最后有效发展锚点：姓名、修为、主要能力、当前地点、年龄、最后确认时间、当前重要状态、主要目标/重要事项。\n- “年龄”和“最后确认时间”是两个独立字段：年龄记录人物当时已确认的年龄；最后确认时间记录这条发展锚点最后被剧情明确确认的世界时间。不得互相代替；任一未知则留空。\n- NPC再次进入当前剧情时，联合读取表4该NPC主记录 + 表5最新发展锚点 + 表6相关重大历史，作为正文模型离线发展推演起点。\n- 正文确认新的修为、地点、年龄、确认时间、状态、目标等后，只更新实际发生变化或新确认的对应字段，形成新锚点；身份/所属、关系或长期重要信息变化时同步update表4。新锚点取代旧状态，禁止从旧时期重复结算。\n- 表6只记录影响未来推演的重要节点：突破/失败、势力加入退出、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争/宗门覆灭导致处境改变、死亡等。普通修炼、日常生活、微小财富变化不记录。\n- 表5最新状态与表6历史事件冲突时，以时间更晚且已明确发生的事实为准。\n`;
+function replaceMarkedBlock(text,mark,block){const value=String(text||'');if(!value.includes(mark))return value+block;const escaped=mark.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');return value.replace(new RegExp(`\\n${escaped}[\\s\\S]*?(?=\\n#|\\n\\[[^\\n]+\\]|$)`),block.trimEnd());}
+function appendRules(text){return replaceMarkedBlock(replaceMarkedBlock(text,RULE_MARK,compactRules),NPC_ANCHOR_MARK,npcAnchorRules);}
+function preserveSingleApiProtocol(oldText,nextText){const value=String(oldText||'');const start=value.indexOf('[一次API固定收尾协议]');if(start<0)return nextText;const endMark='[/一次API固定收尾协议]';const end=value.indexOf(endMark,start);if(end<0)return nextText;const block=value.slice(start,end+endMark.length);return`${String(nextText||'').trim()}\n\n${block}`.trim();}
+function normalizeAgeAnchorPrompt(text){return String(text||'').replace(/年龄或最后确认时间/g,'年龄、最后确认时间').replace(/年龄\/最后确认时间/g,'年龄、最后确认时间').replace(/年龄\/时间/g,'年龄、确认时间');}
+function upgradeKnownOldPrompts(settings){const message=String(settings?.message_template||'');if(message.includes('## 表格：0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件')||message.includes('六张表维护当前事实状态'))settings.message_template=preserveSingleApiProtocol(message,defaultSettings.message_template);const refreshSystem=String(settings?.refresh_system_message_template||'');if(refreshSystem.includes('人物表保存NPC最后有效发展锚点')||refreshSystem.includes('现有六张表'))settings.refresh_system_message_template=defaultSettings.refresh_system_message_template;const refreshUser=String(settings?.refresh_user_message_template||'');if(refreshUser.includes('4人物→5历史事件')||refreshUser.includes('六张表'))settings.refresh_user_message_template=defaultSettings.refresh_user_message_template;}
+function patchPrompts(settings){if(!settings||typeof settings!=='object')return;normalizeSettingsStructure(settings);if(settings!==defaultSettings)upgradeKnownOldPrompts(settings);if('message_template'in settings)settings.message_template=appendRules(normalizeAgeAnchorPrompt(settings.message_template));if('refresh_system_message_template'in settings)settings.refresh_system_message_template=appendRules(normalizeAgeAnchorPrompt(settings.refresh_system_message_template));if('refresh_user_message_template'in settings)settings.refresh_user_message_template=appendRules(normalizeAgeAnchorPrompt(settings.refresh_user_message_template));}
+function normalized(values){return(values||[]).map(value=>String(value||'').trim());}
+function migrateLegacyPlayerSheet(){try{const sheet=BASE.getChatSheets().find(item=>item?.name==='角色状态表');if(!sheet)return false;const header=normalized(sheet.getHeader?.()||[]);if(header.length===PLAYER_COLUMNS.length&&PLAYER_COLUMNS.every((v,i)=>header[i]===v))return false;const old=PLAYER_COLUMNS.filter(col=>col!=='性别');if(header.length!==old.length||!old.every((v,i)=>header[i]===v))return false;const valueSheet=sheet.getContent?.(true);if(!Array.isArray(valueSheet)||!valueSheet.length)return false;const migrated=valueSheet.map((row,rowIndex)=>{const next=Array.isArray(row)?row.slice():[];next.splice(2,0,rowIndex===0?'性别':'');return next;});sheet.rebuildHashSheetByValueSheet(migrated);sheet.markPositionCacheDirty?.();sheet.save(undefined,true);USER.saveChat();return true;}catch(error){console.warn('[Memo] 角色状态表旧结构迁移失败，保留原数据',error);return false;}}
 patchPrompts(defaultSettings);
-
-function patchCurrentSettingsAndData() {
-    patchPrompts(USER?.tableBaseSetting);
-    migrateLegacyPlayerSheet();
-    ensureSevenTableWorld();
-}
-function repairBeforePrompt() {
-    patchCurrentSettingsAndData();
-    repairMissingColumnsBeforeCleanup({ notify: false });
-}
-
-queueMicrotask(patchCurrentSettingsAndData);
-setTimeout(patchCurrentSettingsAndData, 250);
-setTimeout(patchCurrentSettingsAndData, 1000);
-setTimeout(patchCurrentSettingsAndData, 2000);
-const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
-APP.eventSource.on(promptEvent, repairBeforePrompt);
-if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(promptEvent, repairBeforePrompt);
-console.log('[Memo] 七表职责、旧六表提示迁移、NPC长期发展锚点与请求前结构校验已加载');
+function patchCurrentSettingsAndData(){patchPrompts(USER?.tableBaseSetting);migrateLegacyPlayerSheet();ensureSevenTableWorld();}
+function repairBeforePrompt(){patchCurrentSettingsAndData();repairMissingColumnsBeforeCleanup({notify:false});}
+queueMicrotask(patchCurrentSettingsAndData);setTimeout(patchCurrentSettingsAndData,250);setTimeout(patchCurrentSettingsAndData,1000);setTimeout(patchCurrentSettingsAndData,2000);
+const promptEvent=APP.event_types.CHAT_COMPLETION_PROMPT_READY;APP.eventSource.on(promptEvent,repairBeforePrompt);if(typeof APP.eventSource.makeFirst==='function')APP.eventSource.makeFirst(promptEvent,repairBeforePrompt);
+console.log('[Memo] 七表职责、NPC年龄/确认时间分列、长期发展锚点与请求前结构校验已加载');
