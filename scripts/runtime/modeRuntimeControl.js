@@ -24,8 +24,11 @@ function beforeRendered() {
     forceNormalMode();
 }
 
+function visibleMes(chat) {
+    return String(chat?.mes ?? '').replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '').trim();
+}
 function tokenFor(chat) {
-    return `${Number(chat?.swipe_id ?? 0)}\u241f${String(chat?.mes ?? '')}`;
+    return `${Number(chat?.swipe_id ?? 0)}\u241f${visibleMes(chat)}`;
 }
 
 function hasAttempted(chat, token) {
@@ -111,4 +114,4 @@ if (typeof APP.eventSource.makeFirst === 'function') {
 if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(renderedEvent, triggerIndependentRecord);
 
 forceNormalMode();
-console.log('[Memo] 独立记录 API：按message+swipe去重；失败不自动重试');
+console.log('[Memo] 独立记录 API：按message+swipe可见正文去重；失败不自动重试；隐藏记录不触发重复API');
