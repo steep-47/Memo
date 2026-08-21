@@ -1,10 +1,10 @@
 import {BASE, DERIVED, EDITOR, SYSTEM, USER} from '../../core/manager.js';
 import {updateSystemMessageTableStatus, updateAlternateTable} from "../renderer/tablePushToChat.js";
-import {rebuildSheets , modifyRebuildTemplate, newRebuildTemplate, deleteRebuildTemplate, exportRebuildTemplate, importRebuildTemplate, triggerStepByStepNow} from "../runtime/absoluteRefresh.js?v=memo90";
+import {rebuildSheets , modifyRebuildTemplate, newRebuildTemplate, deleteRebuildTemplate, exportRebuildTemplate, importRebuildTemplate, triggerStepByStepNow} from "../runtime/absoluteRefresh.js?v=memo91";
 import {generateDeviceId} from "../../utils/utility.js";
 import {updateModelList, handleApiTestRequest ,processApiKey} from "./standaloneAPI.js";
 import {filterTableDataPopup} from "../../data/pluginSetting.js";
-import {initRefreshTypeSelector} from "../runtime/absoluteRefresh.js?v=memo90";
+import {initRefreshTypeSelector} from "../runtime/absoluteRefresh.js?v=memo91";
 import {rollbackVersion} from "../../services/debugs.js";
 import {customSheetsStylePopup} from "../editor/customSheetsStyle.js";
 import {buildSheetsByTemplates} from "../../index.js"

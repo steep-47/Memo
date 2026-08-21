@@ -15,12 +15,14 @@ async function finishSingleApi(chatId){
     const persistence=chat.__memoStrictPersistence;
     if(persistence&&typeof persistence.then==='function'){try{if(await persistence!==true)return;}catch(_){return;}}
     const status=chat.__memoStrictExecution;
-    if(!status||status.ok!==true||status.changed!==true||status.noChange===true)return;
+    if(!status||status.ok!==true)return;
     if(Number(status.swipeId)!==Number(chat?.swipe_id??0))return;
     if(String(status.mes??'')!==String(chat.mes??''))return;
     const token=tokenFor(chat,status);
     if(wasHandled(chat,token))return;
     markHandled(chat,token);
+    if(status.noChange===true){EDITOR.info('本轮无需填表','',1500);return;}
+    if(status.changed!==true)return;
     EDITOR.success('填表完成！','',2500);
 }
 
