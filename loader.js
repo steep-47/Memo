@@ -1,6 +1,6 @@
 import './index.js';
 
-const RUNTIME_VERSION = 'memo77';
+const RUNTIME_VERSION = 'memo78';
 
 async function loadOptional(label, path) {
     try {
@@ -15,12 +15,13 @@ async function loadOptional(label, path) {
     }
 }
 
-// 核心Memo(index.js)先加载；新增运行链统一使用memo77缓存实例。
+// 核心Memo(index.js)先加载；新增运行链统一使用memo78缓存实例。
 // 一次API：同一次模型响应返回table_edit + reply，本地严格执行，不进行第二次补记。
 // 独立记录API：正文后额外1次记录API，使用纯tableEdit协议与同一严格执行器。
 const modules = [
     ['设置归一', './scripts/runtime/settingsBootstrap.js'],
     ['严格表格执行器', './scripts/runtime/safeTableExecutor.js'],
+    ['Swipe精确快照恢复', './scripts/runtime/swipeSnapshotRestore.js'],
     ['记录模式控制', './scripts/runtime/modeRuntimeControl.js'],
     ['一次API提示恢复', './scripts/runtime/singleApiPromptRestore.js'],
     ['一次API结构化双通道', './scripts/runtime/singleApiStructured.js'],
@@ -36,4 +37,4 @@ const modules = [
 ];
 
 for (const [label, path] of modules) await loadOptional(label, path);
-console.log('[Memo][loader] memo77 统一严格记录运行时加载完成');
+console.log('[Memo][loader] memo78 统一严格记录运行时加载完成');
