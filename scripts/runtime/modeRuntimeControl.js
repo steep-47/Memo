@@ -1,5 +1,5 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
-import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo78';
+import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo79';
 
 const PREF_KEY='independent_record_api_enabled';
 const attempted=new WeakMap();
@@ -12,7 +12,7 @@ function readEnabled(){return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY]
 function forceNormalMode(){if(USER?.tableBaseSetting)USER.tableBaseSetting.step_by_step=false;}
 function preparePromptMode(){if(USER?.tableBaseSetting)USER.tableBaseSetting.step_by_step=readEnabled();}
 function tableEditMatches(text){const regex=/<tableEdit>(.*?)<\/tableEdit>/gs;const matches=[];let match;while((match=regex.exec(String(text??'')))!==null)matches.push(match[1]);return matches;}
-function snapshotFor(chat,id){return chat?.swipe_info?.[id]?.extra?.memo_hash_sheets||chat?.swipe_info?.[id]?.memo_hash_sheets||chat?.extra?.memo_hash_sheets||null;}
+function snapshotFor(chat,id){return chat?.swipe_info?.[id]?.extra?.memo_hash_sheets||chat?.swipe_info?.[id]?.memo_hash_sheets||null;}
 function restoreCurrentStrictSnapshot(chatId){if(!readEnabled())return;const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user===true)return;const id=Number(chat?.swipe_id);const snapshot=Number.isInteger(id)&&id>=0?snapshotFor(chat,id):null;if(!snapshot)return;try{chat.hash_sheets=BASE.copyHashSheets(snapshot);if(!chat.extra||typeof chat.extra!=='object')chat.extra={};chat.extra.memo_hash_sheets=BASE.copyHashSheets(snapshot);BASE.hashSheetsToSheets(chat.hash_sheets);chat.tableEditMatches=tableEditMatches(chat.mes);console.log(`[Memo] 独立模式渲染前恢复严格Swipe快照：message=${chatId} swipe=${id}`);}catch(error){console.warn('[Memo] 独立模式恢复严格Swipe快照失败，将交给原Memo兜底',error);}}
 function beforeRendered(chatId){forceNormalMode();restoreCurrentStrictSnapshot(chatId);}
 function isAppendGeneration(type){const value=String(type??'').toLowerCase();return value==='continue'||value==='append'||value==='appendfinal';}
