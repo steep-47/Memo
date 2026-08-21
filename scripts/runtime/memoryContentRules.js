@@ -1,7 +1,7 @@
 import { APP, BASE, USER } from '../../core/manager.js';
 import { defaultSettings } from '../../data/pluginSetting.js';
-import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo83';
-import { ensureSevenTableWorld, normalizeSettingsStructure } from './sevenTableMigration.js?v=memo83';
+import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo84';
+import { ensureSevenTableWorld, normalizeSettingsStructure } from './sevenTableMigration.js?v=memo84';
 
 const RULE_MARK='[角色身份归一规则]'; const NPC_ANCHOR_MARK='[NPC长期发展锚点规则]';
 const PLAYER_COLUMNS=['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'];
