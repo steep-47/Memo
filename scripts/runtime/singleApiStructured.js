@@ -1,9 +1,10 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
-import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo85';
+import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo86';
 
 const PREF_KEY='independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME='memo_single_api_response';
+const COMPAT_PROMPT_MARKER='[Memo structured output compatibility instruction]';
 const handledMessages=new WeakMap();
 let pendingStructuredRequest=null;
 let armedGeneration=null;
@@ -28,7 +29,13 @@ function consumePending(){const pending=pendingStructuredRequest;pendingStructur
 function restoreStreamingSetting(){if(!streamRestore)return;const{settings,value,timer}=streamRestore;streamRestore=null;if(timer)clearTimeout(timer);try{settings.stream_openai=value;}catch(_){}}
 function armGeneration(type,_options,dryRun){prepareContinueReference(type,dryRun);restoreStreamingSetting();if(!isChatReplyGeneration(type,dryRun)){armedGeneration=null;return;}pendingStructuredRequest=null;armedGeneration={type:String(type??''),startedAt:Date.now()};}
 function prepareStructuredPrompt(eventData){if(!armedGeneration||!singleApiActive()||eventData?.dryRun===true)return;const settings=USER?.getContext?.()?.chatCompletionSettings;if(!settings||settings.stream_openai!==true)return;settings.stream_openai=false;const timer=setTimeout(()=>restoreStreamingSetting(),15000);streamRestore={settings,value:true,timer};console.log('[Memo][structured] 本轮结构化主回复临时关闭流式；完成参数计算后自动恢复用户设置');}
-async function injectStructuredSchema(generateData){restoreReferenceOverride();if(!armedGeneration||!singleApiActive()||!generateData||typeof generateData!=='object'){restoreStreamingSetting();return;}if(generateData.json_schema&&generateData.json_schema?.name!==STRUCTURED_SCHEMA_NAME){console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。',generateData.json_schema);armedGeneration=null;pendingStructuredRequest=null;restoreStreamingSetting();EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');return;}const context=USER?.getContext?.();const previousAssistant=currentLastAssistant();pendingStructuredRequest={createdAt:Date.now(),sessionChat:context?.chat,generationType:armedGeneration.type,baseChat:previousAssistant,baseMes:previousAssistant?String(previousAssistant.mes??''):''};armedGeneration=null;try{generateData.json_schema=structuredClone(MEMO_SCHEMA);}catch(_){generateData.json_schema=JSON.parse(JSON.stringify(MEMO_SCHEMA));}restoreStreamingSetting();console.log('[Memo][structured] 已向本次真实角色回复注入双字段JSON schema');}
+function appendCompatibilityInstruction(generateData){
+    if(!Array.isArray(generateData?.messages))return false;
+    if(generateData.messages.some(message=>String(message?.content??'').includes(COMPAT_PROMPT_MARKER)))return true;
+    generateData.messages.push({role:'user',content:`${COMPAT_PROMPT_MARKER}\n无论接口是否支持response_format/json_schema，最终content都必须只输出一个合法JSON对象，JSON之外不得有任何字符、Markdown代码围栏或解释。严格格式：{"table_edit":"NO_CHANGE 或 Memo 操作代码","reply":"给用户看的完整正常回复"}。两个字段都必须存在；换行、引号和反斜杠必须按JSON规则转义。不要把普通正文直接输出在JSON外。`});
+    return true;
+}
+async function injectStructuredSchema(generateData){restoreReferenceOverride();if(!armedGeneration||!singleApiActive()||!generateData||typeof generateData!=='object'){restoreStreamingSetting();return;}if(generateData.json_schema&&generateData.json_schema?.name!==STRUCTURED_SCHEMA_NAME){console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。',generateData.json_schema);armedGeneration=null;pendingStructuredRequest=null;restoreStreamingSetting();EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');return;}const context=USER?.getContext?.();const previousAssistant=currentLastAssistant();pendingStructuredRequest={createdAt:Date.now(),sessionChat:context?.chat,generationType:armedGeneration.type,baseChat:previousAssistant,baseMes:previousAssistant?String(previousAssistant.mes??''):''};armedGeneration=null;try{generateData.json_schema=structuredClone(MEMO_SCHEMA);}catch(_){generateData.json_schema=JSON.parse(JSON.stringify(MEMO_SCHEMA));}const compatAdded=appendCompatibilityInstruction(generateData);restoreStreamingSetting();console.log(`[Memo][structured] 已注入双字段JSON schema${compatAdded?' + OpenAI兼容端点末尾强制协议':''}`);}
 function markCurrentMessageTableEditsHandled(chat){try{const{matches}=getTableEditTag(String(chat?.mes??''));chat.tableEditMatches=Array.isArray(matches)?[...matches]:[];}catch(error){console.warn('[Memo][structured] 标记本轮tableEdit已处理失败',error);}}
 function restoreBaselineForFullReply(chatId,chat){try{const numericId=Number(chatId);const previous=Number.isInteger(numericId)&&numericId>0?BASE.getLastSheetsPiece(numericId-1,1000,false)?.piece:BASE.getLastSheetsPiece(1)?.piece;const snapshot=previous?.hash_sheets||BASE.initHashSheet?.()?.hash_sheets;const result=restoreMemoSnapshot(snapshot);if(result.ok)return true;console.warn('[Memo][structured] 恢复本轮回复基线失败；已停止写表并回滚恢复动作',result.error,chat);return false;}catch(error){console.warn('[Memo][structured] 恢复本轮回复基线异常；已停止写表',error,chat);return false;}}
 function setRuntimeField(target,key,value){Object.defineProperty(target,key,{value,writable:true,configurable:true,enumerable:false});}
