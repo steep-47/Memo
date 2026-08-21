@@ -27,6 +27,12 @@ deleteRow(tableIndex:number,rowIndex:number)
 - 写入前必须先检查现有行：首次确认/真正新增用insert；已有事实变化用update；明确消失/结束用delete；只是查看、复述、再次提及且事实未变则不操作。
 - 同一对象已有记录时优先update，禁止因再次提及而重复insert。名称或称呼略有变化但上下文明显是同一对象时仍视为同一条记录。
 - 不猜测未知；未知信息留空。
+# NPC长期发展锚点
+- Memo不模拟NPC离线生活，只保存未来可重新推演的最后有效锚点；不得为了NPC成长额外编造事实或生成离线流水账。
+- 表4人物表中的长期NPC应尽量维护已确认的：当前修为/主要能力、身份所属、当前地点、年龄或最后确认时间、重要状态、主要目标/重要事项、与玩家关系。没有实际信息的字段留空。
+- NPC重新进入当前剧情时，优先读取该NPC人物表最新行及表5中与其相关的重要历史，作为正文模型离线发展推演的起点；若新旧事实冲突，以时间更晚且已明确发生的事实为准。
+- 正文确认NPC经过离线时期后的新状态后，直接update同一人物行，使其成为新的发展锚点；旧锚点被新事实取代，不得从旧时期重复结算。
+- 表5只记录会改变未来推演的重要节点，如突破/失败、势力加入退出、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争/宗门覆灭导致处境改变、死亡。普通修炼、日常生活、微小财富变化不写历史。
 # 背包表特别规则
 - 背包表表示<user>当前实际持有物品的最新库存，而不是物品提及次数。
 - 表中没有，而本轮首次明确确认玩家已经持有的物品，必须补录；即使剧情没有发生“获得”动作，也属于首次确认。
@@ -36,14 +42,13 @@ deleteRow(tableIndex:number,rowIndex:number)
 - 可重复使用的武器、装备、工具、容器使用后仍归玩家所有，不因“使用”删除；装备/卸下/损坏/装满/清空等只更新状态。例如喝完水但水袋仍在，应更新为空水袋而不是删除水袋。
 - 同一物品的不同描述如“铁剑/腰间铁剑/那柄旧铁剑”，上下文确认是同一件时只能维护原行，不能新建重复行。
 # 输出
-- 正文后仅在确有表格操作时输出<tableEdit><!-- 函数调用 --></tableEdit>。所有必要表格操作放在同一个<tableEdit>中。`,
+- 剧情/回答主体写完后，先立即输出一个完整<tableEdit>：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。随后再写参考行动、选项、伊依留言等回复尾部内容。`,
     isTableToChat: false,
     show_settings_in_extension_menu: true,
     alternate_switch: true,
     show_drawer_in_extension_list: true,
     table_to_chat_can_edit: false,
     table_to_chat_mode: 'context_bottom',
-    table_cell_width_mode: 'wide1_2_cell',
     to_chat_container: `<div class="table-preview-bar"><details><summary style="display:flex;justify-content:space-between"><span>记忆增强表格</span></summary>$0</details></div>`,
     confirm_before_execution: true,
     use_main_api: true,
@@ -55,8 +60,8 @@ deleteRow(tableIndex:number,rowIndex:number)
     clear_up_stairs: 9,
     use_token_limit: true,
     rebuild_token_limit_value: 10000,
-    refresh_system_message_template: `你是世界状态表格整理助手。只根据已确认事实维护现有表格。优先更新已有行，不写流水账，不猜测未知。只输出<tableEdit>。`,
-    refresh_user_message_template: `<聊天记录>\n$1\n</聊天记录>\n<当前表格>\n$0\n</当前表格>\n<表头信息>\n$2\n</表头信息>\n按0当前状态→1角色状态→2背包→3任务约定→4人物→5历史事件检查。同一对象已有行优先update；不猜测未知。函数放在<tableEdit><!-- ... --></tableEdit>中。`,
+    refresh_system_message_template: `你是世界状态表格整理助手。只根据已确认事实维护现有表格。优先更新已有行，不写流水账，不猜测未知。人物表保存NPC最后有效发展锚点；历史表只保存影响未来推演的重要节点，不自行模拟NPC离线发展。只输出<tableEdit>。`,
+    refresh_user_message_template: `<聊天记录>\n$1\n</聊天记录>\n<当前表格>\n$0\n</当前表格>\n<表头信息>\n$2\n</表头信息>\n按0当前状态→1角色状态→2背包→3任务约定→4人物→5历史事件检查。同一对象已有行优先update；NPC新状态覆盖旧锚点，重要节点才写历史；不猜测未知。函数放在<tableEdit><!-- ... --></tableEdit>中。`,
     rebuild_default_system_message_template: '',
     rebuild_default_message_template: '',
     lastSelectedTemplate: 'rebuild_base',
@@ -73,7 +78,7 @@ deleteRow(tableIndex:number,rowIndex:number)
         {tableName:'角色状态表',tableIndex:1,columns:['姓名','性别','种族','年龄','修为','灵根/体质','灵力','神识','身体状态','灵石','钱财','技能/术法','擅长','其他状态'],enable:true,Required:true,asStatus:true,toChat:true,note:'<user>/玩家本人专属实时状态表，只允许一行；禁止记录任何NPC',initNode:'首次得到<user>/玩家本人的明确状态信息时插入',insertNode:'仅当表为空且对象明确为<user>/玩家本人时插入',updateNode:'仅更新<user>/玩家本人；当前值覆盖旧值',deleteNode:'重复玩家状态行只保留最新有效一行'},
         {tableName:'背包表',tableIndex:2,columns:['物品名','类型','数量','状态/品质','备注'],enable:true,Required:false,asStatus:true,toChat:true,note:'<user>当前实际持有物品的最新库存；不是物品提及日志；同一物品只保留一条有效记录',initNode:'表为空或发现当前已持有但尚未记录的物品时补录；首次确认原本就持有也必须补录',insertNode:'仅在当前确认持有且表中没有同一物品时插入；再次查看/盘点/描述已有物品禁止重复插入',updateNode:'已有同一物品只在数量/品质/状态/备注确有变化时更新；获得同类增加，消耗/出售/交付/丢失减少',deleteNode:'数量归零或明确完全不再持有时删除；可重复使用装备/工具/容器仅因使用不得删除'},
         {tableName:'当前任务与约定表',tableIndex:3,columns:['事项','相关人物','内容','地点/期限','当前状态'],enable:true,Required:false,asStatus:true,toChat:true,note:'只保存尚未结束的任务/承诺/交易/约定',initNode:'存在尚未完成的重要事项时记录',insertNode:'出现新的未结束事项时插入',updateNode:'进度/地点/期限/状态变化时更新同一行',deleteNode:'完成/失败/取消/失效后删除；重大结果可写入历史'},
-        {tableName:'人物表',tableIndex:4,columns:['姓名','别名/称呼','性别','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'],enable:true,Required:true,asStatus:true,toChat:true,note:'NPC专属长期人物表，禁止记录<user>/玩家本人；同一NPC一行',initNode:'只记录后续值得继续引用的NPC',insertNode:'出现新的重要NPC且表中没有时插入',updateNode:'更新同一NPC的已确认信息',deleteNode:'重复NPC行删除并合并信息；死亡通常更新状态而非删除'},
-        {tableName:'历史事件表',tableIndex:5,columns:['时间','地点','涉及人物','事件','结果'],enable:true,Required:true,asStatus:true,toChat:true,note:'有限追加的重要历史，只记录影响后续的既成事件',initNode:'仅补录真正重要的既成事件',insertNode:'死亡/突破/重大冲突结果/关系重大转折/身份变化/重要获得或永久损失时插入',updateNode:'仅纠正明确错误或补最终结果时更新',deleteNode:'重复或明确错误的历史行可删除'},
+        {tableName:'人物表',tableIndex:4,columns:['姓名','别名/称呼','性别','身份/所属','修为/主要能力','外貌特征','性格','与玩家关系','当前状态','重要信息','当前地点','年龄/最后确认时间','主要目标/重要事项'],enable:true,Required:true,asStatus:true,toChat:true,note:'NPC专属长期人物表；同一NPC一行；保存最后有效发展锚点而非离线流水账；禁止记录<user>/玩家本人',initNode:'只记录后续值得继续引用的NPC；已确认的修为能力/身份所属/地点/年龄或确认时间/重要状态/目标/玩家关系可作为长期锚点，未知留空',insertNode:'出现新的重要NPC且表中没有时插入；不得为了补齐锚点编造未知信息',updateNode:'同一NPC出现新的已确认状态时更新原行并覆盖旧锚点；新状态成为下一次离线发展起点，避免重复结算同一时期',deleteNode:'重复NPC行删除并合并信息；死亡通常更新当前状态并在历史记录死亡节点，而非删除人物'},
+        {tableName:'历史事件表',tableIndex:5,columns:['时间','地点','涉及人物','事件','结果'],enable:true,Required:true,asStatus:true,toChat:true,note:'有限追加的重要历史；用于补充人物锚点，只记录会影响未来推演的既成节点',initNode:'仅补录真正重要且已确认发生的节点',insertNode:'突破/突破失败、势力加入退出、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争或宗门覆灭导致处境改变、死亡等重要节点才插入',updateNode:'仅纠正明确错误或补最终结果；人物最新状态与历史冲突时以时间更晚的明确事实为准',deleteNode:'重复或明确错误的历史行可删除'},
     ],
 });
