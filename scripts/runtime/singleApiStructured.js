@@ -1,17 +1,17 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
-import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo91';
+import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo92';
 
 const PREF_KEY='independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME='memo_single_api_response';
-const COMPAT_PROMPT_MARKER='[Memo JSON object compatibility instruction]';
+const COMPAT_PROMPT_MARKER='[Memo custom tagged output instruction]';
 const handledMessages=new WeakMap();
 let pendingStructuredRequest=null;
 let armedGeneration=null;
 let streamRestore=null;
 let referenceRestore=null;
 
-const MEMO_SCHEMA={name:STRUCTURED_SCHEMA_NAME,description:'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',strict:true,value:{type:'object',additionalProperties:false,properties:{table_edit:{type:'string',description:'这不是SQL。仅允许Memo函数调用，唯一合法函数及完整语法为：insertRow(tableIndex,{columnIndex:value,...})、updateRow(tableIndex,rowIndex,{columnIndex:value,...})、deleteRow(tableIndex,rowIndex)。没有变化时填写NO_CHANGE。严禁使用INSERT、INTO、VALUES、UPDATE、DELETE、SQL等关键字或任何SQL语法。updateRow/deleteRow的rowIndex必须是当前表格第一列真实显示的现有数字；空表严禁updateRow/deleteRow，首次记录只能insertRow。不要包含<tableEdit>标签、Markdown或解释。'},reply:{type:'string',description:'给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。'}},required:['table_edit','reply']}};
+const MEMO_SCHEMA={name:STRUCTURED_SCHEMA_NAME,description:'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',strict:true,value:{type:'object',additionalProperties:false,properties:{table_edit:{type:'string',description:'这不是SQL。仅允许Memo函数调用，唯一合法函数及完整语法为：insertRow(tableIndex,{columnIndex:value,...})、updateRow(tableIndex,rowIndex,{columnIndex:value,...})、deleteRow(tableIndex,rowIndex)。角色扮演剧情只要继续推进，就必须检查并更新表0的日期、时间、地点和当前场景人物；日影移动、日头升高、片刻后、随后等也属于时间变化，不得填写NO_CHANGE。NO_CHANGE只允许全部七表都确实无变化。严禁使用INSERT、INTO、VALUES、UPDATE、DELETE、SQL等关键字或任何SQL语法。updateRow/deleteRow的rowIndex必须是当前表格第一列真实显示的现有数字；空表严禁updateRow/deleteRow，首次记录只能insertRow。不要包含<tableEdit>标签、Markdown或解释。'},reply:{type:'string',description:'给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。'}},required:['table_edit','reply']}};
 
 function independentEnabled(){return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY]===true;}
 function singleApiActive(){const settings=USER?.tableBaseSetting;return !independentEnabled()&&settings?.isExtensionAble!==false&&settings?.isAiReadTable!==false&&settings?.isAiWriteTable!==false&&settings?.injection_mode!=='injection_off'&&settings?.step_by_step!==true;}
@@ -31,13 +31,33 @@ function restoreStreamingSetting(){if(!streamRestore)return;const{settings,value
 function armGeneration(type,_options,dryRun){prepareContinueReference(type,dryRun);restoreStreamingSetting();if(!isChatReplyGeneration(type,dryRun)){armedGeneration=null;return;}pendingStructuredRequest=null;armedGeneration={type:String(type??''),startedAt:Date.now()};}
 function prepareStructuredPrompt(eventData){if(!armedGeneration||!singleApiActive()||eventData?.dryRun===true)return;const settings=USER?.getContext?.()?.chatCompletionSettings;if(!settings||settings.stream_openai!==true)return;settings.stream_openai=false;const timer=setTimeout(()=>restoreStreamingSetting(),15000);streamRestore={settings,value:true,timer};console.log('[Memo][structured] 本轮结构化主回复临时关闭流式；完成参数计算后自动恢复用户设置');}
 function isCustomOpenAIEndpoint(generateData){return String(generateData?.chat_completion_source??'').toLowerCase()==='custom'||Boolean(generateData?.custom_url);}
+function removeConflictingOutputRules(generateData){
+    if(!Array.isArray(generateData?.messages))return;
+    for(const message of generateData.messages){
+        if(typeof message?.content!=='string')continue;
+        message.content=message.content
+            .replace(/\[一次API固定收尾协议\][\s\S]*?\[\/一次API固定收尾协议\]/g,'')
+            .split('\n')
+            .filter(line=>{
+                const trimmed=line.trim();
+                if(trimmed.includes('一次API模式使用结构化双字段响应'))return false;
+                if(trimmed.startsWith('- 正文后仅在确有表格操作时输出<tableEdit>'))return false;
+                if(trimmed.startsWith('- 正文后必须以一个完整<tableEdit>结束'))return false;
+                if(trimmed.startsWith('- 剧情/回答主体写完后，先立即输出一个完整<tableEdit>'))return false;
+                if(trimmed.startsWith('- 最终回复必须先输出恰好一个完整<tableEdit>机器记录'))return false;
+                return true;
+            })
+            .join('\n')
+            .trim();
+    }
+}
 function appendCompatibilityInstruction(generateData){
     if(!Array.isArray(generateData?.messages))return false;
     if(generateData.messages.some(message=>String(message?.content??'').includes(COMPAT_PROMPT_MARKER)))return true;
-    generateData.messages.push({role:'user',content:`${COMPAT_PROMPT_MARKER}\n最终content必须先正常输出给用户看的完整回复，并在全部正文结束后追加且只追加一个隐藏机器块：<tableEdit><!-- 操作 --></tableEdit>。标签后不得再输出任何字符。没有需要记录的变化时，机器块必须准确写为<tableEdit><!-- NO_CHANGE --></tableEdit>。不要输出JSON，不要解释本协议。\n机器块不是SQL。唯一合法函数及完整语法只有：insertRow(tableIndex,{columnIndex:value,...})、updateRow(tableIndex,rowIndex,{columnIndex:value,...})、deleteRow(tableIndex,rowIndex)。严禁使用INSERT、INTO、VALUES、UPDATE、DELETE、SQL等关键字或任何SQL语法；不要把非法操作猜测或改写为合法函数。\n生成机器块前必须重新核对当前表格：数据第一列明确显示的数字才是可用于updateRow/deleteRow的rowIndex；凡显示“（此表格当前为空）”的表都没有可更新行，严禁updateRow/deleteRow，首次记录只能insertRow(tableIndex,data)。禁止把tableIndex、列号或预计新增后的行号当成rowIndex。`});
+    generateData.messages.push({role:'user',content:`${COMPAT_PROMPT_MARKER}\n这是本轮唯一有效的输出格式：最终content必须先正常输出给用户看的完整回复，并在全部正文结束后追加且只追加一个隐藏机器块：<tableEdit><!-- 操作 --></tableEdit>。标签后不得再输出任何字符。不要输出JSON，不要解释本协议。\n只要角色扮演剧情继续推进，就必须检查并更新表0的日期、时间、地点和当前场景人物；“日影移动、日头升高、片刻后、随后”等时间推进也算变化，不得输出NO_CHANGE。只有日期、时间、地点、场景人物、角色状态、背包、任务约定、人物和历史事件全部没有任何变化时，才允许写<tableEdit><!-- NO_CHANGE --></tableEdit>。\n机器块不是SQL。唯一合法函数及完整语法只有：insertRow(tableIndex,{columnIndex:value,...})、updateRow(tableIndex,rowIndex,{columnIndex:value,...})、deleteRow(tableIndex,rowIndex)。严禁使用INSERT、INTO、VALUES、UPDATE、DELETE、SQL等关键字或任何SQL语法；不要把非法操作猜测或改写为合法函数。\n生成机器块前必须重新核对当前表格：数据第一列明确显示的数字才是可用于updateRow/deleteRow的rowIndex；凡显示“（此表格当前为空）”的表都没有可更新行，严禁updateRow/deleteRow，首次记录只能insertRow(tableIndex,data)。禁止把tableIndex、列号或预计新增后的行号当成rowIndex。表4人物主表与表5人物发展表通过同一NPC姓名关联，已有对象优先update，禁止重复insert；表5的年龄和最后确认时间必须分开维护。`});
     return true;
 }
-async function injectStructuredSchema(generateData){restoreReferenceOverride();if(!armedGeneration||!singleApiActive()||!generateData||typeof generateData!=='object'){restoreStreamingSetting();return;}if(generateData.json_schema&&generateData.json_schema?.name!==STRUCTURED_SCHEMA_NAME){console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。',generateData.json_schema);armedGeneration=null;pendingStructuredRequest=null;restoreStreamingSetting();EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');return;}const customEndpoint=isCustomOpenAIEndpoint(generateData);const context=USER?.getContext?.();const previousAssistant=currentLastAssistant();pendingStructuredRequest={createdAt:Date.now(),sessionChat:context?.chat,generationType:armedGeneration.type,responseMode:customEndpoint?'tagged':'json',baseChat:previousAssistant,baseMes:previousAssistant?String(previousAssistant.mes??''):''};armedGeneration=null;if(customEndpoint){delete generateData.json_schema;const compatAdded=appendCompatibilityInstruction(generateData);restoreStreamingSetting();console.log(`[Memo][structured] 自定义OpenAI端点使用单次正文+tableEdit协议｜tail=${compatAdded?'已注入':'缺失'}`);return;}try{generateData.json_schema=structuredClone(MEMO_SCHEMA);}catch(_){generateData.json_schema=JSON.parse(JSON.stringify(MEMO_SCHEMA));}restoreStreamingSetting();console.log('[Memo][structured] 原生端点已注入双字段JSON schema');}
+async function injectStructuredSchema(generateData){restoreReferenceOverride();if(!armedGeneration||!singleApiActive()||!generateData||typeof generateData!=='object'){restoreStreamingSetting();return;}if(generateData.json_schema&&generateData.json_schema?.name!==STRUCTURED_SCHEMA_NAME){console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。',generateData.json_schema);armedGeneration=null;pendingStructuredRequest=null;restoreStreamingSetting();EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');return;}const customEndpoint=isCustomOpenAIEndpoint(generateData);const context=USER?.getContext?.();const previousAssistant=currentLastAssistant();pendingStructuredRequest={createdAt:Date.now(),sessionChat:context?.chat,generationType:armedGeneration.type,baseChat:previousAssistant,baseMes:previousAssistant?String(previousAssistant.mes??''):''};armedGeneration=null;if(customEndpoint){delete generateData.json_schema;removeConflictingOutputRules(generateData);const compatAdded=appendCompatibilityInstruction(generateData);restoreStreamingSetting();console.log(`[Memo][structured] 自定义OpenAI端点使用单次正文+tableEdit协议｜旧冲突协议已移除｜tail=${compatAdded?'已注入':'缺失'}`);return;}try{generateData.json_schema=structuredClone(MEMO_SCHEMA);}catch(_){generateData.json_schema=JSON.parse(JSON.stringify(MEMO_SCHEMA));}restoreStreamingSetting();console.log('[Memo][structured] 原生端点已注入双字段JSON schema');}
 function markCurrentMessageTableEditsHandled(chat){try{const{matches}=getTableEditTag(String(chat?.mes??''));chat.tableEditMatches=Array.isArray(matches)?[...matches]:[];}catch(error){console.warn('[Memo][structured] 标记本轮tableEdit已处理失败',error);}}
 function restoreBaselineForFullReply(chatId,chat){try{const numericId=Number(chatId);const previous=Number.isInteger(numericId)&&numericId>0?BASE.getLastSheetsPiece(numericId-1,1000,false)?.piece:BASE.getLastSheetsPiece(1)?.piece;const snapshot=previous?.hash_sheets||BASE.initHashSheet?.()?.hash_sheets;const result=restoreMemoSnapshot(snapshot);if(result.ok)return true;console.warn('[Memo][structured] 恢复本轮回复基线失败；已停止写表并回滚恢复动作',result.error,chat);return false;}catch(error){console.warn('[Memo][structured] 恢复本轮回复基线异常；已停止写表',error,chat);return false;}}
 function setRuntimeField(target,key,value){Object.defineProperty(target,key,{value,writable:true,configurable:true,enumerable:false});}

@@ -2,9 +2,9 @@ import { BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag, getTablePromptByPiece } from '../../index.js';
 import { handleCustomAPIRequest, handleMainAPIRequest, estimateTokenCount } from '../settings/standaloneAPI.js';
 import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
-import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo91';
-import { ensureSevenTableWorld } from './sevenTableMigration.js?v=memo91';
-import { executeMemoTableEdit, parseMemoTableEdit } from './safeTableExecutor.js?v=memo91';
+import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo92';
+import { ensureSevenTableWorld } from './sevenTableMigration.js?v=memo92';
+import { executeMemoTableEdit, parseMemoTableEdit } from './safeTableExecutor.js?v=memo92';
 
 const INSTALL_FLAG='__memoStableTableCleanupInstalled'; let running=false;
 const SYSTEM_PROMPT=`你是Memo世界状态表格整理器。只整理现有七张表，不写剧情，不输出完整JSON表格。

@@ -94,7 +94,7 @@ let structuredSource = await fs.readFile(new URL('../scripts/runtime/singleApiSt
 structuredSource = structuredSource
     .replace("import { APP, BASE, EDITOR, USER } from '../../core/manager.js';", 'const { APP, BASE, EDITOR, USER } = globalThis.__structuredMocks;')
     .replace("import { getTableEditTag } from '../../index.js';", 'const { getTableEditTag } = globalThis.__structuredMocks;')
-    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo91';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
+    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo92';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
 const handlers = new Map();
 const baselineSheet = new FakeSheet('当前状态表');
 const originalBaselineRows = structuredClone(baselineSheet.rows);
@@ -136,16 +136,19 @@ await handlers.get('settings')(compatibleRequest);
 if (compatibleRequest.json_schema?.name !== 'memo_single_api_response') throw new Error('一次API未注入原生JSON schema');
 if (compatibleRequest.messages.length !== 1) throw new Error('原生schema端点被错误追加tagged协议');
 handlers.get('start')('normal', {}, false);
-const customRequest = { chat_completion_source: 'custom', custom_url: 'https://proxy.example/v1', messages: [{ role: 'user', content: 'original user message' }] };
+const customRequest = { chat_completion_source: 'custom', custom_url: 'https://proxy.example/v1', messages: [{ role: 'system', content: '保留的角色规则\n- 一次API模式使用结构化双字段响应：旧冲突规则\n- 最终回复必须先输出恰好一个完整<tableEdit>机器记录，再开始剧情/回答正文\n[一次API固定收尾协议]\n旧JSON双字段协议\n[/一次API固定收尾协议]' }] };
 await handlers.get('settings')(customRequest);
 if (customRequest.json_schema) throw new Error('自定义OpenAI端点仍被注入可能不兼容的JSON schema');
+if (customRequest.messages[0]?.content !== '保留的角色规则') throw new Error('自定义端点未精确移除旧冲突协议，或误删了正常角色规则');
 if (customRequest.custom_include_body?.includes('response_format:\n  type: json_object')) throw new Error('自定义OpenAI端点仍被强制塞入json_object请求参数');
 if (customRequest.messages.length !== 2 || !customRequest.messages[1]?.content?.includes('正常输出给用户看的完整回复') || !customRequest.messages[1]?.content?.includes('<tableEdit><!-- 操作 --></tableEdit>')) throw new Error('自定义OpenAI端点未追加正文+tableEdit末尾协议');
 if (!customRequest.messages[1]?.content?.includes('此表格当前为空') || !customRequest.messages[1]?.content?.includes('首次记录只能insertRow')) throw new Error('自定义OpenAI端点缺少空表insert硬约束');
 if (!customRequest.messages[1]?.content?.includes('机器块不是SQL') || !customRequest.messages[1]?.content?.includes('insertRow(tableIndex,{columnIndex:value,...})') || !customRequest.messages[1]?.content?.includes('updateRow(tableIndex,rowIndex,{columnIndex:value,...})') || !customRequest.messages[1]?.content?.includes('deleteRow(tableIndex,rowIndex)')) throw new Error('自定义OpenAI端点缺少非SQL声明或完整合法函数语法');
 if (!customRequest.messages[1]?.content?.includes('INSERT、INTO、VALUES、UPDATE、DELETE、SQL')) throw new Error('自定义OpenAI端点缺少SQL关键字禁止规则');
+if (!customRequest.messages[1]?.content?.includes('日影移动、日头升高、片刻后、随后') || !customRequest.messages[1]?.content?.includes('不得输出NO_CHANGE')) throw new Error('自定义OpenAI端点缺少剧情时间推进强制记录规则');
 const schemaDescription = compatibleRequest.json_schema?.value?.properties?.table_edit?.description || '';
 if (!schemaDescription.includes('这不是SQL') || !schemaDescription.includes('insertRow(tableIndex,{columnIndex:value,...})') || !schemaDescription.includes('INSERT、INTO、VALUES、UPDATE、DELETE、SQL')) throw new Error('原生JSON schema未同步非SQL协议');
+if (!schemaDescription.includes('日影移动、日头升高、片刻后、随后') || !schemaDescription.includes('不得填写NO_CHANGE')) throw new Error('原生JSON schema未同步剧情时间推进强制记录规则');
 structuredContext.chat.push({ is_user: false, mes: 'visible\n\n<tableEdit><!-- updateRow(0,0,{0:"new"}) --></tableEdit>', swipe_id: 0, swipes: [''] });
 await handlers.get('rendered')(1);
 if (executeCount !== 0) throw new Error('基线恢复失败后仍调用严格执行器');
@@ -154,13 +157,16 @@ if (JSON.stringify(baselineSheet.rows) !== JSON.stringify(originalBaselineRows))
 const singleApiText = await fs.readFile(new URL('../scripts/runtime/singleApiStructured.js', import.meta.url), 'utf8');
 const independentText = await fs.readFile(new URL('../scripts/runtime/separateTableUpdate.js', import.meta.url), 'utf8');
 const finishText = await fs.readFile(new URL('../scripts/runtime/singleApiFinish.js', import.meta.url), 'utf8');
+const promptRestoreText = await fs.readFile(new URL('../scripts/runtime/singleApiPromptRestore.js', import.meta.url), 'utf8');
 if (!singleApiText.includes('baselineReady?executeMemoTableEdit')) throw new Error('一次API缺少基线成功门控');
 if (!singleApiText.includes('chat!==pending.sessionChat')) throw new Error('一次API缺少跨聊天pending隔离');
 if (!independentText.includes('if(!prepareAutoBaseline')) throw new Error('自动独立记录缺少基线成功门控');
 if (!independentText.includes('if(!baselineReady)throw new Error')) throw new Error('手动独立记录缺少基线成功门控');
 if (!independentText.includes('!sessionChat.includes(initialPiece)')) throw new Error('手动独立记录缺少目标消息当前聊天归属校验');
 if (!finishText.includes("if(status.noChange===true){EDITOR.info('本轮无需填表'")) throw new Error('一次API缺少NO_CHANGE明确状态提示');
+if (promptRestoreText.includes('const KNOWN_OLD_OUTPUT_RULES') || promptRestoreText.includes('const STRUCTURED_OUTPUT_RULE') || promptRestoreText.includes('const SINGLE_API_PROTOCOL')) throw new Error('一次API提示恢复仍保留旧协议堆叠常量');
+if (!promptRestoreText.includes('具体传输格式只服从API请求末尾最后出现的协议')) throw new Error('一次API基础提示未统一为传输格式无关规则');
 const detachedGate = independentText.indexOf("return'detached'");
 const independentExecute = independentText.indexOf('const result=executeMemoTableEdit');
 if (detachedGate < 0 || independentExecute < 0 || detachedGate > independentExecute) throw new Error('独立记录缺少执行前聊天会话身份门控');
-console.log('baseline-gate audit PASS: restore-failure-execute-count=0, partial-restore-rollback=1, independent-gates=2, native-schema=1, custom-tagged=1, no-change-toast=1');
+console.log('baseline-gate audit PASS: restore-failure-execute-count=0, partial-restore-rollback=1, independent-gates=2, native-schema=1, custom-tagged=1, conflicting-protocol-removed=1, roleplay-time-required=1, no-change-toast=1');

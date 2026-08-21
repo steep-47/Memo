@@ -1,6 +1,6 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
-import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo91';
-import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo91';
+import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo92';
+import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo92';
 
 const PREF_KEY='independent_record_api_enabled';
 const attempted=new WeakMap();

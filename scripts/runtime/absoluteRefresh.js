@@ -3,14 +3,14 @@ import { BASE, DERIVED, EDITOR, SYSTEM, USER } from '../../core/manager.js';
 import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag, getTablePromptByPiece } from "../../index.js";
 import JSON5 from '../../utils/json5.min.mjs'
 import { updateSystemMessageTableStatus } from "../renderer/tablePushToChat.js";
-import { TableTwoStepSummary } from "./separateTableUpdate.js?v=memo91";
+import { TableTwoStepSummary } from "./separateTableUpdate.js?v=memo92";
 import { estimateTokenCount, handleCustomAPIRequest, handleMainAPIRequest } from "../settings/standaloneAPI.js";
 import { profile_prompts } from "../../data/profile_prompts.js";
 import { Form } from '../../components/formManager.js';
 import { refreshRebuildTemplate } from "../settings/userExtensionSetting.js"
 import { safeParse } from '../../utils/stringUtil.js';
-import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js?v=memo91";
-import { restoreMemoSnapshot } from "./safeTableExecutor.js?v=memo91";
+import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js?v=memo92";
+import { restoreMemoSnapshot } from "./safeTableExecutor.js?v=memo92";
 
 // 在解析响应后添加验证
 function validateActions(actions) {
@@ -211,7 +211,7 @@ export async function getPromptAndRebuildTable(templateName = '', additionalProm
  * @returns
  */
 export async function rebuildTableActions(force = false, silentUpdate = USER.tableBaseSetting.bool_silent_refresh, chatToBeUsed = '') {
-    const { runStableCleanup } = await import('./stableTableCleanup.js?v=memo91');
+    const { runStableCleanup } = await import('./stableTableCleanup.js?v=memo92');
     return runStableCleanup();
     /* legacy full-table rebuild retained below for source compatibility; execution is intentionally unreachable */
     // #region 表格总结执行
