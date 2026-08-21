@@ -126,10 +126,13 @@ function restoreStreamingSetting() {
 
 function armGeneration(type, _options, dryRun) {
     restoreStreamingSetting();
+    if (!isChatReplyGeneration(type, dryRun)) {
+        armedGeneration = null;
+        return;
+    }
+    // 只有下一次真正角色回复才允许覆盖旧pending；quiet/impersonate等嵌套生成不得清掉等待拆包的正文。
     pendingStructuredRequest = null;
-    armedGeneration = isChatReplyGeneration(type, dryRun)
-        ? { type: String(type ?? ''), startedAt: Date.now() }
-        : null;
+    armedGeneration = { type: String(type ?? ''), startedAt: Date.now() };
 }
 
 function prepareStructuredPrompt(eventData) {
