@@ -1,4 +1,5 @@
 import { APP, EDITOR, USER } from '../../core/manager.js';
+import { executeTableEditActions, getTableEditTag } from '../../index.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME = 'memo_single_api_response';
@@ -120,6 +121,7 @@ function restoreStreamingSetting() {
 
 function armGeneration(type, _options, dryRun) {
     restoreStreamingSetting();
+    pendingStructuredRequest = null;
     armedGeneration = isChatReplyGeneration(type, dryRun)
         ? { type: String(type ?? ''), startedAt: Date.now() }
         : null;
@@ -161,9 +163,17 @@ async function injectStructuredSchema(generateData) {
         generateData.json_schema = JSON.parse(JSON.stringify(MEMO_SCHEMA));
     }
 
-    // createGenerationParameters已经在此事件之前计算了本轮stream；此时恢复用户全局设置即可。
     restoreStreamingSetting();
     console.log('[Memo][structured] 已向本次真实角色回复注入双字段JSON schema');
+}
+
+function markCurrentMessageTableEditsHandled(chat) {
+    try {
+        const { matches } = getTableEditTag(String(chat?.mes ?? ''));
+        chat.tableEditMatches = Array.isArray(matches) ? [...matches] : [];
+    } catch (error) {
+        console.warn('[Memo][structured] 标记Continue已处理tableEdit失败，将允许原parser兜底', error);
+    }
 }
 
 async function unpackStructuredReply(chatId) {
@@ -185,7 +195,6 @@ async function unpackStructuredReply(chatId) {
     let basePrefix = '';
     let structuredRaw = currentMes;
 
-    // Continue/append：请求前最后一条就是同一assistant消息，只解析本次追加的尾段JSON。
     if (pending.baseChat === chat && pending.baseMes && currentMes.startsWith(pending.baseMes)) {
         basePrefix = pending.baseMes;
         structuredRaw = currentMes.slice(pending.baseMes.length).trim();
@@ -213,6 +222,20 @@ async function unpackStructuredReply(chatId) {
         : buildLegacyCompatibleMessage(reply, tableEdit);
     syncCurrentSwipe(chat);
     handledMessages.set(chat, chat.mes);
+
+    // Continue在同一消息上追加：只执行本轮新操作，禁止原parser从更早状态重放旧tableEdit。
+    if (basePrefix) {
+        let handledDirectly = tableEdit === 'NO_CHANGE';
+        if (!handledDirectly) {
+            try {
+                handledDirectly = executeTableEditActions([tableEdit]) !== false;
+            } catch (error) {
+                console.warn('[Memo][structured] Continue本轮tableEdit直接执行失败，将交给原parser兜底', error);
+                handledDirectly = false;
+            }
+        }
+        if (handledDirectly) markCurrentMessageTableEditsHandled(chat);
+    }
 
     try {
         const context = USER.getContext();
@@ -243,4 +266,4 @@ const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, unpackStructuredReply);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(renderedEvent, unpackStructuredReply);
 
-console.log('[Memo] 一次API结构化双通道已加载：正文生成令牌 + pending绑定 + Continue安全追加 + 单轮临时非流式');
+console.log('[Memo] 一次API结构化双通道已加载：正文生成令牌 + pending绑定 + Continue增量执行 + 单轮临时非流式');
