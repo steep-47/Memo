@@ -45,7 +45,9 @@ deleteRow(tableIndex:number,rowIndex:number)
 - 一次性物品使用、消耗、出售、交付、丢失或被夺走后按实际剩余数量update；数量归零或明确完全不再持有时delete。
 - 可重复使用的武器、装备、工具、容器使用后仍归玩家所有，不因“使用”删除；装备/卸下/损坏/装满/清空等只更新状态。
 # 输出
-- 一次API模式使用结构化双字段响应：table_edit只填写必要的insertRow/updateRow/deleteRow操作代码，无变化填写NO_CHANGE；reply只填写给用户看的正常完整回复。reply保持角色原有自然顺序（正文→参考行动/选项→留言等），不得出现<tableEdit>、JSON说明或机器记录。`,
+- 正常生成给用户看的完整回复，并在回复末尾附加恰好一个<tableEdit><!-- ... --></tableEdit>机器块；机器块会由Memo隐藏，不得用JSON包裹正文。
+- 机器块不是SQL。块内只允许insertRow(tableIndex,{columnIndex:value,...})、updateRow(tableIndex,rowIndex,{columnIndex:value,...})、deleteRow(tableIndex,rowIndex)，禁止INSERT、INTO、VALUES、UPDATE、DELETE、SQL等SQL写法。
+- 每轮都必须输出tableEdit。日期、时间、地点、当前场景人物任一发生变化（包括“日影移动”“日头升高”“片刻后”“随后”等明确时间推进）时，必须更新表0当前状态；只有七表事实均未变化时才输出<tableEdit><!-- NO_CHANGE --></tableEdit>。`,
     isTableToChat: false,
     show_settings_in_extension_menu: true,
     alternate_switch: true,

@@ -1,7 +1,7 @@
 // tableStructureRepair.js
 import { BASE, EDITOR, USER } from '../../core/manager.js';
 import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
-import { ensureSevenTableWorld } from './sevenTableMigration.js?v=memo92';
+import { ensureSevenTableWorld } from './sevenTableMigration.js?v=memo93';
 
 const WORLD_MEMORY_HEADERS = {
     '当前状态表': ['日期','时间','地点','当前场景人物'],

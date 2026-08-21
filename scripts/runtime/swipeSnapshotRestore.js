@@ -1,5 +1,5 @@
 import { APP, BASE, USER } from '../../core/manager.js';
-import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo92';
+import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo93';
 
 function copyHashSheets(value){try{return BASE.copyHashSheets(value);}catch(_){return JSON.parse(JSON.stringify(value));}}
 function tableEditMatches(text){const regex=/<tableEdit>(.*?)<\/tableEdit>/gs;const matches=[];let match;while((match=regex.exec(String(text??'')))!==null)matches.push(match[1]);return matches;}

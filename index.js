@@ -3,10 +3,10 @@ import { openTableRendererPopup, updateSystemMessageTableStatus } from "./script
 import { loadSettings } from "./scripts/settings/userExtensionSetting.js";
 import { ext_getAllTables, ext_exportAllTablesAsJson } from './scripts/settings/standaloneAPI.js';
 import { openTableDebugLogPopup } from "./scripts/settings/devConsole.js";
-import { TableTwoStepSummary } from "./scripts/runtime/separateTableUpdate.js?v=memo92";
+import { TableTwoStepSummary } from "./scripts/runtime/separateTableUpdate.js?v=memo93";
 import { initTest } from "./components/_fotTest.js";
 import { initAppHeaderTableDrawer, openAppHeaderTableDrawer } from "./scripts/renderer/appHeaderTableBaseDrawer.js";
-import { initRefreshTypeSelector } from './scripts/runtime/absoluteRefresh.js?v=memo92';
+import { initRefreshTypeSelector } from './scripts/runtime/absoluteRefresh.js?v=memo93';
 import {refreshTempView, updateTableContainerPosition} from "./scripts/editor/tableTemplateEditView.js";
 import { functionToBeRegistered } from "./services/debugs.js";
 import { parseLooseDict, replaceUserTag } from "./utils/stringUtil.js";
@@ -14,7 +14,7 @@ import {executeTranslation} from "./services/translate.js";
 import applicationFunctionManager from "./services/appFuncManager.js"
 import {SheetBase} from "./core/table/base.js";
 import { Cell } from "./core/table/cell.js";
-import { executeMemoTableEdit, restoreMemoSnapshot } from './scripts/runtime/safeTableExecutor.js?v=memo92';
+import { executeMemoTableEdit, restoreMemoSnapshot } from './scripts/runtime/safeTableExecutor.js?v=memo93';
 import { initExternalDataAdapter } from './external-data-adapter.js';
 
 
@@ -306,9 +306,10 @@ export function parseTableEditTag(piece, mesIndex = -1, ignoreCheck = false) {
     if (!ignoreCheck && !isTableEditStrChanged(piece, matches)) return false
     const { piece: prePiece } = mesIndex === -1 ? BASE.getLastSheetsPiece(1) : BASE.getLastSheetsPiece(mesIndex - 1, 1000, false)
     const restored = restoreMemoSnapshot(prePiece?.hash_sheets)
-    if (!restored.ok) { console.error('旧解析入口恢复基线失败，已停止执行', restored.error); return false; }
+    if (!restored.ok) { piece.__memoStrictExecution = { ok:false, error:restored.error, mes:String(piece.mes??''), swipeId:Number(piece.swipe_id??0) }; console.error('直接记录入口恢复基线失败，已停止执行', restored.error); return false; }
     const result = executeMemoTableEdit(matches, piece)
-    if (!result.ok) { console.error('旧解析入口严格执行失败', result.error); return false; }
+    piece.__memoStrictExecution = { ...result, mes:String(piece.mes??''), swipeId:Number(piece.swipe_id??0) };
+    if (!result.ok) { console.error('直接记录入口严格执行失败', result.error); return false; }
     return true
 }
 

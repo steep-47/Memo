@@ -16,8 +16,7 @@ function passiveCheck(chatId) {
     if (!chat || chat.is_user) return;
 
     const text = String(chat.mes ?? '');
-    // 新的一次API链由singleApiStructured负责schema注入和拆包。
-    // 此文件只保留被其他旧代码误加载时的被动诊断，绝不再修改prompt。
+    // 仅诊断旧JSON残留，绝不修改prompt；正常链由index.js直接解析<tableEdit>。
     if (text.trim().startsWith('{') && text.includes('"table_edit"') && text.includes('"reply"')) {
         EDITOR.warning(`一次API结构化结果尚未拆包｜开头：${compact(text)}`);
     }
