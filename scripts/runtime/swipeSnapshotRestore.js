@@ -2,7 +2,7 @@ import { APP, BASE, USER } from '../../core/manager.js';
 
 function copyHashSheets(value){try{return BASE.copyHashSheets(value);}catch(_){return JSON.parse(JSON.stringify(value));}}
 function tableEditMatches(text){const regex=/<tableEdit>(.*?)<\/tableEdit>/gs;const matches=[];let match;while((match=regex.exec(String(text??'')))!==null)matches.push(match[1]);return matches;}
-function snapshotFor(chat,swipeId){return chat?.swipe_info?.[swipeId]?.extra?.memo_hash_sheets||chat?.swipe_info?.[swipeId]?.memo_hash_sheets||chat?.extra?.memo_hash_sheets||null;}
+function snapshotFor(chat,swipeId){return chat?.swipe_info?.[swipeId]?.extra?.memo_hash_sheets||chat?.swipe_info?.[swipeId]?.memo_hash_sheets||null;}
 
 function restoreMemoSwipeSnapshot(chatId){
     const chat=USER?.getContext?.()?.chat?.[chatId];
