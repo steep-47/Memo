@@ -42,7 +42,6 @@ function attachValidatedRecord(piece, rawContent, matches) {
         if (Number.isInteger(id) && id >= 0 && id < piece.swipes.length) piece.swipes[id] = piece.mes;
     }
 }
-
 function buildRecentContext() {
     const chat = Array.isArray(USER.getContext?.()?.chat) ? USER.getContext().chat : [];
     const layers = Math.max(0, Number(USER.tableBaseSetting.separateReadContextLayers) || 1);
@@ -51,7 +50,6 @@ function buildRecentContext() {
     const candidates = chat.filter(item => item && item !== current && item.is_user === false);
     return candidates.slice(-layers).map(item => `${item.name || 'assistant'}: ${stripMachine(item.mes)}`).join('\n');
 }
-
 async function readLorebook() {
     if (!USER.tableBaseSetting.separateReadLorebook || !window.TavernHelper) return '';
     try {
@@ -68,7 +66,6 @@ async function readLorebook() {
         return '';
     }
 }
-
 function parsePromptTemplate() {
     const raw = String(USER.tableBaseSetting.step_by_step_user_prompt || '').trim();
     try {
@@ -79,7 +76,6 @@ function parsePromptTemplate() {
         throw new Error(`独立填表提示词格式错误：${error?.message || error}`);
     }
 }
-
 async function buildIndependentMessages(todoChats, originText) {
     const contextChats = buildRecentContext();
     const lorebook = await readLorebook();
@@ -92,12 +88,10 @@ async function buildIndependentMessages(todoChats, originText) {
         .replace(/(?<!\\)\$4/g, () => lorebook);
     return template.map(message => ({ ...message, content: replace(message?.content) }));
 }
-
 async function runIndependentApi(todoChats, referencePiece, isSilentMode) {
     const originText = getTablePrompt(referencePiece);
     const messages = await buildIndependentMessages(todoChats, originText);
     const useMain = USER.tableBaseSetting.step_by_step_use_main_api ?? true;
-
     let rawContent;
     try {
         rawContent = useMain
@@ -108,28 +102,24 @@ async function runIndependentApi(todoChats, referencePiece, isSilentMode) {
         EDITOR.warning(`独立记录API请求失败：${error?.message || error}`);
         return false;
     }
-
     if (rawContent === 'suspended') return false;
     if (typeof rawContent !== 'string' || !rawContent.trim() || /^错误[:：]/.test(rawContent.trim())) {
         console.error('[Memo][independent] API返回无效:', rawContent);
         EDITOR.warning('独立记录失败：API返回为空或错误内容，原表未修改。');
         return false;
     }
-
     const { matches } = getTableEditTag(rawContent);
-    if (!Array.isArray(matches) || !matches.length) {
-        console.error('[Memo][independent] 模型未返回tableEdit:', rawContent);
-        EDITOR.warning('独立记录失败：模型没有返回<tableEdit>，原表未修改。');
+    if (!Array.isArray(matches) || matches.length !== 1) {
+        console.error('[Memo][independent] 模型tableEdit块数量异常:', matches?.length ?? 0, rawContent);
+        EDITOR.warning(`独立记录失败：模型必须且只能返回1个<tableEdit>，实际为${matches?.length ?? 0}个。原表未修改。`);
         return false;
     }
-
     const result = executeMemoTableEdit(matches, referencePiece);
     if (!result.ok) {
         console.error('[Memo][independent] tableEdit校验/执行失败:', result.error, matches);
         EDITOR.warning(`独立记录失败：${result.error}。原表未执行错误操作。`);
         return false;
     }
-
     attachValidatedRecord(referencePiece, rawContent, matches);
     await USER.saveChat();
     BASE.refreshContextView();
@@ -138,7 +128,6 @@ async function runIndependentApi(todoChats, referencePiece, isSilentMode) {
     return true;
 }
 
-/** auto：独立记录开关开启后，正文完成时额外调用1次记录API。 manual：用户手动触发。 */
 export async function TableTwoStepSummary(mode = 'manual') {
     if (USER.tableBaseSetting.isExtensionAble === false) return false;
     if (!['auto','manual'].includes(mode)) {
@@ -146,14 +135,12 @@ export async function TableTwoStepSummary(mode = 'manual') {
         return false;
     }
     if (mode === 'auto' && USER.tableBaseSetting.step_by_step === false) return false;
-
     const { piece: todoPiece } = USER.getChatPiece();
     if (!todoPiece) {
         if (mode === 'manual') EDITOR.error('未找到待填表的对话片段，请至少生成一条角色回复。');
         return false;
     }
     const todoChats = String(todoPiece.mes ?? '');
-
     if (mode === 'manual') {
         const popupContentHtml = `<p>累计 ${todoChats.length} 长度的文本，是否开始独立填表？</p>`;
         const confirmResult = await newPopupConfirm(popupContentHtml, '取消', '执行填表', 'stepwiseSummaryConfirm', '不再提示', '一直选是');
@@ -167,7 +154,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
     const { piece: initialPiece } = USER.getChatPiece();
     if (!initialPiece) return false;
     const isAutoMode = confirmResult === 'dont_remind_active';
-
     if (!isAutoMode && initialPiece.hash_sheets && Object.keys(initialPiece.hash_sheets).length > 0) {
         try {
             await undoSheets(0);
@@ -177,7 +163,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
             return false;
         }
     }
-
     repairMissingColumnsBeforeCleanup({ notify:false });
     const { piece: referencePiece } = USER.getChatPiece();
     if (!referencePiece) return false;
