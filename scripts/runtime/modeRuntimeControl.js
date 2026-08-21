@@ -3,6 +3,7 @@ import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo78';
 
 const PREF_KEY='independent_record_api_enabled';
 const attempted=new WeakMap();
+// 按具体assistant消息对象保存待处理任务；同一消息排队期间继续变化时只保留最新版本。
 const queuedJobs=new Map();
 let independentRunActive=false;
 let pendingRoleGeneration={generationType:'normal',baseMes:''};
@@ -20,8 +21,78 @@ function visibleMes(chat){return String(chat?.mes??'').replace(/<tableEdit>[\s\S
 function tokenFor(chat){return`${Number(chat?.swipe_id??0)}\u241f${visibleMes(chat)}`;}
 function hasAttempted(chat,token){return attempted.get(chat)?.has(token)===true;}
 function markAttempted(chat,token){let set=attempted.get(chat);if(!set){set=new Set();attempted.set(chat,set);}set.add(token);}
-function drainQueue(){if(independentRunActive||!queuedJobs.size)return;const first=queuedJobs.entries().next().value;if(!first)return;const[chatId,info]=first;queuedJobs.delete(chatId);queueMicrotask(()=>triggerIndependentRecord(chatId,info));}
-function triggerIndependentRecord(chatId,forcedInfo=null){if(!readEnabled()||!USER?.tableBaseSetting)return;const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user===true)return;const token=tokenFor(chat);if(hasAttempted(chat,token))return;const generationInfo=forcedInfo||{...pendingRoleGeneration};if(independentRunActive){queuedJobs.set(chatId,generationInfo);return;}markAttempted(chat,token);independentRunActive=true;let task;try{USER.tableBaseSetting.step_by_step=true;task=TableTwoStepSummary('auto',generationInfo);}catch(error){independentRunActive=false;forceNormalMode();console.error('[Memo] 独立记录 API 启动失败:',error);EDITOR.warning(`独立记录未启动：${error?.message||error}`);drainQueue();return;}finally{forceNormalMode();}Promise.resolve(task).then(result=>{if(result===true){EDITOR.success('独立填表完成！');console.log(`[Memo] 独立记录 API：swipe=${Number(chat?.swipe_id??0)} ${generationInfo.generationType||'normal'}记录完成`);}else{console.warn('[Memo] 独立记录 API：本轮未完成写入；为避免重复扣费，本swipe不会自动重试');EDITOR.warning('独立记录未完成：本轮未成功写入。不会自动重试；可手动立即填表或重新生成。');}}).catch(error=>{console.error('[Memo] 独立记录 API 执行异常:',error);EDITOR.warning(`独立记录执行异常：${error?.message||error}。不会自动重试。`);}).finally(()=>{independentRunActive=false;forceNormalMode();drainQueue();});}
+function currentChatId(chat){const list=USER?.getContext?.()?.chat;return Array.isArray(list)?list.indexOf(chat):-1;}
+function makeJob(chatId,chat,generationInfo,{forceFull=false}={}){const visible=visibleMes(chat);return{chatId:Number(chatId),chat,generationInfo:{...(generationInfo||{})},visible,todoChats:String(chat?.mes??''),token:tokenFor(chat),forceFull:forceFull===true,createdAt:Date.now()};}
+function queueLatest(job){if(!job?.chat)return;const previous=queuedJobs.get(job.chat);const next={...job,forceFull:previous?true:job.forceFull};queuedJobs.set(job.chat,next);console.log(`[Memo] 独立记录已排队：message=${job.chatId} swipe=${Number(job.chat?.swipe_id??0)}${next.forceFull?'｜完整重算':''}`);}
+function drainQueue(){if(independentRunActive||!queuedJobs.size||!readEnabled())return;const first=queuedJobs.entries().next().value;if(!first)return;const[chat,job]=first;queuedJobs.delete(chat);queueMicrotask(()=>startIndependentJob(job));}
+function enqueueCurrentVersion(chat,baseInfo={}){if(!chat||chat.is_user===true)return;const id=currentChatId(chat);if(id<0)return;const visible=visibleMes(chat);const token=tokenFor(chat);if(hasAttempted(chat,token)&&!queuedJobs.has(chat))return;queueLatest(makeJob(id,chat,{...baseInfo,generationType:'normal',baseMes:''},{forceFull:true}));}
+
+function startIndependentJob(job){
+    if(!job?.chat||!readEnabled()||!USER?.tableBaseSetting){drainQueue();return;}
+    const chat=job.chat;
+    const liveId=currentChatId(chat);
+    if(liveId<0||chat.is_user===true){drainQueue();return;}
+    const liveToken=tokenFor(chat);
+    if(liveToken!==job.token){
+        // 尚未发请求就已经变成新版本：旧任务不消费API，直接改排最新完整版本。
+        queueLatest(makeJob(liveId,chat,{generationType:'normal',baseMes:''},{forceFull:true}));
+        drainQueue();
+        return;
+    }
+    if(hasAttempted(chat,job.token)){drainQueue();return;}
+
+    markAttempted(chat,job.token);
+    independentRunActive=true;
+    const options={
+        ...job.generationInfo,
+        targetPiece:chat,
+        todoChats:job.todoChats,
+        expectedVisible:job.visible,
+        forceFull:job.forceFull,
+    };
+    let task;
+    try{
+        USER.tableBaseSetting.step_by_step=true;
+        task=TableTwoStepSummary('auto',options);
+    }catch(error){
+        independentRunActive=false;forceNormalMode();console.error('[Memo] 独立记录 API 启动失败:',error);EDITOR.warning(`独立记录未启动：${error?.message||error}`);drainQueue();return;
+    }finally{forceNormalMode();}
+
+    Promise.resolve(task)
+        .then(result=>{
+            if(result===true){
+                EDITOR.success('独立填表完成！');
+                console.log(`[Memo] 独立记录 API：message=${liveId} swipe=${Number(chat?.swipe_id??0)} ${options.forceFull?'完整重算':options.generationType||'normal'}完成`);
+                return;
+            }
+            if(result==='stale'){
+                // API期间正文发生了Continue/Swipe变化，旧结果已由记录核心丢弃；只排当前最新版本，不报失败。
+                console.log('[Memo] 独立记录旧结果已作废：正文在API期间变化，排队重算最新版本');
+                enqueueCurrentVersion(chat,options);
+                return;
+            }
+            console.warn('[Memo] 独立记录 API：本版本未完成写入；为避免重复扣费不会自动重试同一版本');
+            EDITOR.warning('独立记录未完成：本轮未成功写入。不会自动重试；可手动立即填表或重新生成。');
+        })
+        .catch(error=>{console.error('[Memo] 独立记录 API 执行异常:',error);EDITOR.warning(`独立记录执行异常：${error?.message||error}。不会自动重试。`);})
+        .finally(()=>{independentRunActive=false;forceNormalMode();drainQueue();});
+}
+
+function triggerIndependentRecord(chatId,forcedInfo=null){
+    if(!readEnabled()||!USER?.tableBaseSetting)return;
+    const chat=USER?.getContext?.()?.chat?.[chatId];
+    if(!chat||chat.is_user===true)return;
+    const token=tokenFor(chat);
+    if(hasAttempted(chat,token)&&!queuedJobs.has(chat))return;
+    const generationInfo=forcedInfo||{...pendingRoleGeneration};
+    const job=makeJob(chatId,chat,generationInfo,{forceFull:false});
+    if(independentRunActive){
+        // 同一消息已有旧版本排队时，新版本覆盖并强制整条重算；不同消息按插入顺序串行。
+        queueLatest({...job,forceFull:queuedJobs.has(chat)});
+        return;
+    }
+    startIndependentJob(job);
+}
 
 const startedEvent=APP.event_types.GENERATION_STARTED;if(startedEvent)APP.eventSource.on(startedEvent,captureGeneration);
 const promptEvent=APP.event_types.CHAT_COMPLETION_PROMPT_READY;
@@ -32,4 +103,4 @@ APP.eventSource.on(renderedEvent,triggerIndependentRecord);
 if(typeof APP.eventSource.makeFirst==='function'){APP.eventSource.makeFirst(promptEvent,preparePromptMode);APP.eventSource.makeFirst(renderedEvent,beforeRendered);}
 if(typeof APP.eventSource.makeLast==='function')APP.eventSource.makeLast(renderedEvent,triggerIndependentRecord);
 forceNormalMode();
-console.log('[Memo] 独立记录 API：严格Swipe快照基线 + Continue新增段 + 可见正文去重');
+console.log('[Memo] 独立记录 API：消息版本绑定队列 + stale丢弃 + 严格Swipe快照 + Continue增量');
