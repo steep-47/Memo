@@ -26,6 +26,7 @@ deleteRow(tableIndex:number,rowIndex:number)
 - 七张表维护当前事实状态，不是关键词出现日志。生成本轮回复前先按0→1→2→3→4→5→6逐表检查应记录的明确事实。
 - 写入前必须先检查现有行：首次确认/真正新增用insert；已有事实变化用update；明确消失/结束用delete；只是查看、复述、再次提及且事实未变则不操作。
 - updateRow只能使用当前表中真实存在的rowIndex；行不存在时不得把update当成insert，真正新增必须明确使用insertRow。
+- 表格内容第一列才是可用的rowIndex。看到“（此表格当前为空）”时，该表没有任何可更新/删除的行，禁止updateRow/deleteRow；首次记录必须使用insertRow。绝不能把表号、列号或预计新增后的行号当作rowIndex。
 - 同一对象已有记录时优先update，禁止因再次提及而重复insert。名称或称呼略有变化但上下文明显是同一对象时仍视为同一条记录。
 - 不猜测未知；未知信息留空。
 # NPC长期发展锚点

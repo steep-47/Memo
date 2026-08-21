@@ -1,6 +1,6 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
-import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo87';
+import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo88';
 
 const PREF_KEY='independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME='memo_single_api_response';
@@ -11,7 +11,7 @@ let armedGeneration=null;
 let streamRestore=null;
 let referenceRestore=null;
 
-const MEMO_SCHEMA={name:STRUCTURED_SCHEMA_NAME,description:'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',strict:true,value:{type:'object',additionalProperties:false,properties:{table_edit:{type:'string',description:'仅填写Memo表格操作代码：insertRow/updateRow/deleteRow；没有变化时填写NO_CHANGE。不要包含<tableEdit>标签、Markdown或解释。'},reply:{type:'string',description:'给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。'}},required:['table_edit','reply']}};
+const MEMO_SCHEMA={name:STRUCTURED_SCHEMA_NAME,description:'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',strict:true,value:{type:'object',additionalProperties:false,properties:{table_edit:{type:'string',description:'仅填写Memo表格操作代码：insertRow/updateRow/deleteRow；没有变化时填写NO_CHANGE。update/delete的rowIndex必须是当前表格第一列真实显示的现有数字；空表严禁update/delete，首次记录必须insert。不要包含<tableEdit>标签、Markdown或解释。'},reply:{type:'string',description:'给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。'}},required:['table_edit','reply']}};
 
 function independentEnabled(){return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY]===true;}
 function singleApiActive(){const settings=USER?.tableBaseSetting;return !independentEnabled()&&settings?.isExtensionAble!==false&&settings?.isAiReadTable!==false&&settings?.isAiWriteTable!==false&&settings?.injection_mode!=='injection_off'&&settings?.step_by_step!==true;}
@@ -34,7 +34,7 @@ function isCustomOpenAIEndpoint(generateData){return String(generateData?.chat_c
 function appendCompatibilityInstruction(generateData){
     if(!Array.isArray(generateData?.messages))return false;
     if(generateData.messages.some(message=>String(message?.content??'').includes(COMPAT_PROMPT_MARKER)))return true;
-    generateData.messages.push({role:'user',content:`${COMPAT_PROMPT_MARKER}\n当前接口不保证支持JSON Schema。最终content不要输出JSON：先正常输出给用户看的完整回复，最后必须追加且只追加一个 <tableEdit><!-- ... --></tableEdit>。注释内部只写Memo的insertRow/updateRow/deleteRow操作；无变化准确写NO_CHANGE。标签后不得再输出任何字符。不要解释本协议，不要省略标签。`});
+    generateData.messages.push({role:'user',content:`${COMPAT_PROMPT_MARKER}\n当前接口不保证支持JSON Schema。最终content不要输出JSON：先正常输出给用户看的完整回复，最后必须追加且只追加一个 <tableEdit><!-- ... --></tableEdit>。注释内部只写Memo的insertRow/updateRow/deleteRow操作；无变化准确写NO_CHANGE。\n生成操作前必须重新核对当前表格：数据第一列明确显示的数字才是可用于updateRow/deleteRow的rowIndex；凡显示“（此表格当前为空）”的表都没有可更新行，严禁updateRow/deleteRow，首次记录只能insertRow(tableIndex,data)。禁止把tableIndex、列号或预计新增后的行号当成rowIndex。\n标签后不得再输出任何字符。不要解释本协议，不要省略标签。`});
     return true;
 }
 async function injectStructuredSchema(generateData){restoreReferenceOverride();if(!armedGeneration||!singleApiActive()||!generateData||typeof generateData!=='object'){restoreStreamingSetting();return;}if(generateData.json_schema&&generateData.json_schema?.name!==STRUCTURED_SCHEMA_NAME){console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。',generateData.json_schema);armedGeneration=null;pendingStructuredRequest=null;restoreStreamingSetting();EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');return;}const customEndpoint=isCustomOpenAIEndpoint(generateData);const context=USER?.getContext?.();const previousAssistant=currentLastAssistant();pendingStructuredRequest={createdAt:Date.now(),sessionChat:context?.chat,generationType:armedGeneration.type,responseMode:customEndpoint?'tagged':'json',baseChat:previousAssistant,baseMes:previousAssistant?String(previousAssistant.mes??''):''};armedGeneration=null;if(customEndpoint){delete generateData.json_schema;const compatAdded=appendCompatibilityInstruction(generateData);restoreStreamingSetting();console.log(`[Memo][structured] 自定义OpenAI端点使用单次tagged协议${compatAdded?'（末尾指令已注入）':''}`);return;}try{generateData.json_schema=structuredClone(MEMO_SCHEMA);}catch(_){generateData.json_schema=JSON.parse(JSON.stringify(MEMO_SCHEMA));}restoreStreamingSetting();console.log('[Memo][structured] 原生端点已注入双字段JSON schema');}

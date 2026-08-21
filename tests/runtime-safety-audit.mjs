@@ -92,7 +92,7 @@ let structuredSource = await fs.readFile(new URL('../scripts/runtime/singleApiSt
 structuredSource = structuredSource
     .replace("import { APP, BASE, EDITOR, USER } from '../../core/manager.js';", 'const { APP, BASE, EDITOR, USER } = globalThis.__structuredMocks;')
     .replace("import { getTableEditTag } from '../../index.js';", 'const { getTableEditTag } = globalThis.__structuredMocks;')
-    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo87';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
+    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo88';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
 const handlers = new Map();
 const baselineSheet = new FakeSheet('当前状态表');
 const originalBaselineRows = structuredClone(baselineSheet.rows);
@@ -138,6 +138,7 @@ const customRequest = { chat_completion_source: 'custom', custom_url: 'https://p
 await handlers.get('settings')(customRequest);
 if (customRequest.json_schema) throw new Error('自定义OpenAI端点仍被注入可能不兼容的JSON schema');
 if (customRequest.messages.length !== 2 || !customRequest.messages[1]?.content?.includes('<tableEdit><!-- ... --></tableEdit>')) throw new Error('自定义OpenAI端点未追加tagged末尾协议');
+if (!customRequest.messages[1]?.content?.includes('此表格当前为空') || !customRequest.messages[1]?.content?.includes('首次记录只能insertRow')) throw new Error('自定义OpenAI端点缺少空表insert硬约束');
 structuredContext.chat.push({ is_user: false, mes: 'visible\n\n<tableEdit><!-- updateRow(0,0,{0:"new"}) --></tableEdit>', swipe_id: 0, swipes: [''] });
 await handlers.get('rendered')(1);
 if (executeCount !== 0) throw new Error('基线恢复失败后仍调用严格执行器');

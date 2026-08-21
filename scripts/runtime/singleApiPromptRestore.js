@@ -19,6 +19,7 @@ ${PROTOCOL_START}
 # 一次API双通道协议
 - 本轮只有一次模型/API请求。API层会在请求末尾指定本轮使用JSON结构或tableEdit标签；必须严格遵守最后出现的传输格式，不能自行省略机器字段。
 - table_edit：只写本轮七张表需要执行的 insertRow / updateRow / deleteRow 代码；不要包<tableEdit>、不要Markdown、不要解释。没有任何变化时准确填写 NO_CHANGE。
+- updateRow/deleteRow中的rowIndex只能抄当前表格数据第一列已经明确显示的数字。若某表显示“（此表格当前为空）”，该表严禁update/delete，首次记录只能insertRow；禁止把tableIndex、列号或新增后的预计行号误当rowIndex。
 - reply：只写用户真正应该看到的完整正常回复，严格保持角色卡/世界书要求的风格和自然结构；正文、参考行动/选项、伊依留言等均写在reply内部。
 - reply中禁止出现Memo、tableEdit、JSON结构说明、表格操作代码或“正在记录”等机器层内容。
 - 表4人物主表与表5人物发展表继续通过同一NPC姓名关联；已有对象优先update，禁止重复insert。
