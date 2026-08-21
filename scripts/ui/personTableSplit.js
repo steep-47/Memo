@@ -1,6 +1,7 @@
-// #4 人物表仅在展示层拆成两张短表；底层人物表结构和数据保持不变。
-// 第一张：姓名｜性别｜身份/所属｜修为｜与玩家关系｜当前状态
-// 第二张：姓名｜别名/称呼｜外貌特征｜性格｜重要信息
+// #4 人物表仅在展示层拆成三张短表；底层14列人物表结构和数据保持不变。
+// 第一张：姓名｜性别｜身份/所属｜修为｜主要能力
+// 第二张：姓名｜当前地点｜年龄/最后确认时间｜当前状态｜主要目标/重要事项｜与玩家关系
+// 第三张：姓名｜别名/称呼｜外貌特征｜性格｜重要信息
 
 let refreshQueued = false;
 const normalizeHeader = text => String(text || '').replace(/\s+/g, '').trim();
@@ -32,7 +33,6 @@ function cloneColumns(source, descriptors, indexColumn, headerRow, nameColumn) {
         if (!['THEAD','TBODY','TFOOT'].includes(section.tagName)) continue;
         const sectionClone = section.cloneNode(false);
         for (const row of Array.from(section.rows || [])) {
-            // 人物表以“姓名”为有效记录主键。姓名为空即视为底层预留空行，仅展示层跳过。
             if (!rowHasPersonName(row, nameColumn, headerRow)) continue;
             const rowClone = row.cloneNode(false), cells = Array.from(row.cells || []), isHeaderRow = row === headerRow;
             const templateCell = cells.find((cell, index) => index !== indexColumn && !!cell) || null;
@@ -57,24 +57,42 @@ function splitPersonTable() {
     const required = ['姓名','身份/所属','修为','外貌特征','性格','与玩家关系','当前状态','重要信息'];
     const positions = Object.fromEntries(required.map(name => [name, indexOf(name)]));
     if (required.some(name => positions[name] < 0)) { source.classList.remove('memory-person-source'); container.querySelectorAll('.memory-person-two-tables').forEach(el => el.remove()); return; }
-    const aliasIndex = indexOf('别名/称呼'), genderIndex = indexOf('性别');
+
+    const optional = name => {
+        const index = indexOf(name);
+        return index >= 0 ? {name, index} : {name, index:-1, virtual:true};
+    };
+    const alias = optional('别名/称呼');
+    const gender = optional('性别');
+    const location = optional('当前地点');
+    const anchorTime = optional('年龄/最后确认时间');
+    const ability = optional('主要能力');
+    const goal = optional('主要目标/重要事项');
+
     const firstGroup = [
-        {name:'姓名', index:positions['姓名']},
-        genderIndex >= 0 ? {name:'性别', index:genderIndex} : {name:'性别', index:-1, virtual:true},
-        {name:'身份/所属', index:positions['身份/所属']}, {name:'修为', index:positions['修为']},
-        {name:'与玩家关系', index:positions['与玩家关系']}, {name:'当前状态', index:positions['当前状态']}
+        {name:'姓名', index:positions['姓名']}, gender,
+        {name:'身份/所属', index:positions['身份/所属']},
+        {name:'修为', index:positions['修为']}, ability
     ];
     const secondGroup = [
-        {name:'姓名', index:positions['姓名']},
-        aliasIndex >= 0 ? {name:'别名/称呼', index:aliasIndex} : {name:'别名/称呼', index:-1, virtual:true},
-        {name:'外貌特征', index:positions['外貌特征']}, {name:'性格', index:positions['性格']}, {name:'重要信息', index:positions['重要信息']}
+        {name:'姓名', index:positions['姓名']}, location, anchorTime,
+        {name:'当前状态', index:positions['当前状态']}, goal,
+        {name:'与玩家关系', index:positions['与玩家关系']}
     ];
+    const thirdGroup = [
+        {name:'姓名', index:positions['姓名']}, alias,
+        {name:'外貌特征', index:positions['外貌特征']},
+        {name:'性格', index:positions['性格']},
+        {name:'重要信息', index:positions['重要信息']}
+    ];
+
     source.classList.add('memory-person-source');
-    const signature = `${sourceSignature(source)}|alias:${aliasIndex >= 0}|gender:${genderIndex >= 0}`;
+    const signature = `${sourceSignature(source)}|anchors:${['当前地点','年龄/最后确认时间','主要能力','主要目标/重要事项'].map(name => indexOf(name) >= 0 ? 1 : 0).join('')}`;
     let view = container.querySelector('.memory-person-two-tables'); if (view?.dataset?.sourceSignature === signature) return;
     const nextView = document.createElement('div'); nextView.className = 'memory-person-two-tables'; nextView.dataset.sourceSignature = signature;
     nextView.appendChild(cloneColumns(source, firstGroup, indexColumn, headerRow, positions['姓名']));
     nextView.appendChild(cloneColumns(source, secondGroup, indexColumn, headerRow, positions['姓名']));
+    nextView.appendChild(cloneColumns(source, thirdGroup, indexColumn, headerRow, positions['姓名']));
     if (view) view.replaceWith(nextView); else { const host = source.parentElement; if (host && host !== container && host.children.length === 1) host.after(nextView); else source.after(nextView); }
     container.querySelectorAll('.memory-person-two-tables').forEach(el => { if (el !== nextView) el.remove(); });
 }
@@ -83,4 +101,4 @@ function mutationIsOnlyPersonView(mutation) { const nodes = [...mutation.addedNo
 const observer = new MutationObserver(mutations => { if (!mutations.every(mutationIsOnlyPersonView)) queueRefresh(); });
 observer.observe(document.documentElement, {childList:true, subtree:true});
 queueRefresh(); setTimeout(queueRefresh,250); setTimeout(queueRefresh,600); setTimeout(queueRefresh,1200);
-console.log('[世界状态记忆表格] 人物表双行展示已加载（姓名为空行不展示）');
+console.log('[世界状态记忆表格] 人物表三段展示已加载（含NPC长期发展锚点）');
