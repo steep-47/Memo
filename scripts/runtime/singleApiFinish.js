@@ -37,7 +37,8 @@ function finishSingleApi(chatId) {
     if (!chat || chat.is_user === true || handled.has(chat)) return;
 
     const { matches } = getTableEditTag(String(chat.mes ?? ''));
-    const hasActualAction = matches?.some(text => /(?:insertRow|updateRow|deleteRow)\s*\(/.test(text));
+    const latestBlock = Array.isArray(matches) && matches.length ? matches[matches.length - 1] : '';
+    const hasActualAction = /(?:insertRow|updateRow|deleteRow)\s*\(/.test(String(latestBlock));
     if (!hasActualAction) return;
 
     const delays = [60, 180, 400];
@@ -58,4 +59,4 @@ function finishSingleApi(chatId) {
 const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, finishSingleApi);
 
-console.log('[Memo] 一次API真实写入绿色提示已加载');
+console.log('[Memo] 一次API真实写入绿色提示已加载：只判断本轮最后tableEdit');
