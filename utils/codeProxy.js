@@ -11,49 +11,56 @@ export const createProxy = (obj) => {
             return target[prop];
         },
         set(target, prop, newValue) {
-            target[prop] = newValue; // 直接修改原始的 props 对象
+            target[prop] = newValue;
             return true;
         },
     });
 }
 
+function cloneDefaultValue(value) {
+    if (value === null || typeof value !== 'object') return value;
+    try {
+        return structuredClone(value);
+    } catch (_) {
+        return JSON.parse(JSON.stringify(value));
+    }
+}
+
 export const createProxyWithUserSetting = (target, allowEmpty = false) => {
     return new Proxy({}, {
         get: (_, property) => {
-            // console.log(`创建代理对象 ${target}`, property)
             // 最优先从用户设置数据中获取
             if (USER.getSettings()[target] && property in USER.getSettings()[target]) {
-                // console.log(`变量 ${property} 已从用户设置中获取`)
                 return USER.getSettings()[target][property];
             }
-            // 尝试从老版本的数据位置 USER.getExtensionSettings().muyoo_dataTable 中获取
+
+            // 尝试从老版本的数据位置迁移
             if (USER.getExtensionSettings()[target] && property in USER.getExtensionSettings()[target]) {
-                console.log(`变量 ${property} 未在用户配置中找到, 已从老版本数据中获取`)
+                console.log(`变量 ${property} 未在用户配置中找到, 已从老版本数据中获取`);
                 const value = USER.getExtensionSettings()[target][property];
-                if (!USER.getSettings()[target]) {
-                    USER.getSettings()[target] = {}; // 初始化，如果不存在
-                }
+                if (!USER.getSettings()[target]) USER.getSettings()[target] = {};
                 USER.getSettings()[target][property] = value;
                 return value;
             }
-            // 如果 USER.getExtensionSettings().muyoo_dataTable 中也不存在，则从 defaultSettings 中获取
+
+            // 缺失的标准字段从默认设置补齐，并持久化到当前用户设置。
+            // 这样旧用户、缺字段配置和导入旧预设都会自动归一化，且绝不覆盖已有用户值。
             if (USER.tableBaseDefaultSettings && property in USER.tableBaseDefaultSettings) {
-                console.log(`变量 ${property} 未找到, 已从默认设置中获取`)
-                return USER.tableBaseDefaultSettings[property];
+                const value = cloneDefaultValue(USER.tableBaseDefaultSettings[property]);
+                if (!USER.getSettings()[target]) USER.getSettings()[target] = {};
+                USER.getSettings()[target][property] = value;
+                console.log(`变量 ${property} 未找到, 已从默认设置补齐`);
+                USER.saveSettings();
+                return value;
             }
-            // 如果 defaultSettings 中也不存在，则检查是否允许为空
-            if (allowEmpty) {
-                return undefined;
-            }
-            // 如果 defaultSettings 中也不存在，则报错
-            EDITOR.error(`变量 ${property} 未在默认设置中找到, 请检查代码`)
+
+            if (allowEmpty) return undefined;
+            EDITOR.error(`变量 ${property} 未在默认设置中找到, 请检查代码`);
             return undefined;
         },
         set: (_, property, value) => {
-            console.log(`设置变量 ${property} 为 ${value}`)
-            if (!USER.getSettings()[target]) {
-                USER.getSettings()[target] = {}; // 初始化，如果不存在
-            }
+            console.log(`设置变量 ${property} 为 ${value}`);
+            if (!USER.getSettings()[target]) USER.getSettings()[target] = {};
             USER.getSettings()[target][property] = value;
             USER.saveSettings();
             return true;
