@@ -1,11 +1,11 @@
 import { BASE, EDITOR, USER } from '../../core/manager.js';
 import { newPopupConfirm } from '../../components/popupConfirm.js';
 import { reloadCurrentChat } from '/script.js';
-import { getTableEditTag, getTablePrompt, getTablePromptByPiece, undoSheets } from '../../index.js';
+import { getTableEditTag, getTablePrompt, getTablePromptByPiece } from '../../index.js';
 import { handleCustomAPIRequest, handleMainAPIRequest } from '../settings/standaloneAPI.js';
 import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
-import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo77';
-import { executeMemoTableEdit } from './safeTableExecutor.js?v=memo77';
+import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo78';
+import { executeMemoTableEdit, saveMemoSnapshot } from './safeTableExecutor.js?v=memo78';
 import JSON5 from '../../utils/json5.min.mjs';
 
 const INDEPENDENT_OPERATION_RULES = `# Memo独立记录操作协议
@@ -23,14 +23,46 @@ updateRow只能使用当前真实存在的rowIndex，越界不得自动新增；
 function isAppendGeneration(type){const value=String(type??'').toLowerCase();return value==='continue'||value==='append'||value==='appendfinal';}
 function stripMachine(text){return String(text??'').replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi,'').replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi,'').trim();}
 function stripTableEditOnly(text){return String(text??'').replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi,'').trim();}
+function copyHashSheets(value){if(!value||typeof value!=='object')return null;try{return BASE.copyHashSheets(value);}catch(_){return JSON.parse(JSON.stringify(value));}}
 function attachValidatedRecord(piece,rawContent,matches){if(!piece)return;const blocks=String(rawContent??'').match(/<tableEdit>[\s\S]*?<\/tableEdit>/gi);const machineBlock=Array.isArray(blocks)&&blocks.length?blocks[blocks.length-1]:`<tableEdit>${String(matches?.[matches.length-1]??'<!-- NO_CHANGE -->')}</tableEdit>`;const visible=stripTableEditOnly(piece.mes);piece.mes=`${visible}\n\n${machineBlock}`.trim();if(Array.isArray(piece.swipes)){const id=Number(piece.swipe_id);if(Number.isInteger(id)&&id>=0&&id<piece.swipes.length)piece.swipes[id]=piece.mes;}}
 function buildRecentContext(){const chat=Array.isArray(USER.getContext?.()?.chat)?USER.getContext().chat:[];const layers=Math.max(0,Number(USER.tableBaseSetting.separateReadContextLayers)||1);if(!layers)return'';const current=USER.getChatPiece?.()?.piece;const candidates=chat.filter(item=>item&&item!==current&&item.is_user===false);return candidates.slice(-layers).map(item=>`${item.name||'assistant'}: ${stripMachine(item.mes)}`).join('\n');}
 async function readLorebook(){if(!USER.tableBaseSetting.separateReadLorebook||!window.TavernHelper)return'';try{const books=await window.TavernHelper.getCharLorebooks({type:'all'});const names=[books?.primary,...(Array.isArray(books?.additional)?books.additional:[])].filter(Boolean);const chunks=[];for(const name of names){const entries=await window.TavernHelper.getLorebookEntries(name);if(Array.isArray(entries))chunks.push(...entries.map(entry=>String(entry?.content??'')).filter(Boolean));}return chunks.join('\n');}catch(error){console.warn('[Memo][independent] 世界书读取失败，继续使用现有表格与聊天上下文',error);return'';}}
 function parsePromptTemplate(){const raw=String(USER.tableBaseSetting.step_by_step_user_prompt||'').trim();try{const parsed=JSON5.parse(raw);if(!Array.isArray(parsed)||!parsed.length)throw new Error('提示词不是非空消息数组');return parsed;}catch(error){throw new Error(`独立填表提示词格式错误：${error?.message||error}`);}}
 async function buildIndependentMessages(todoChats,originText){const contextChats=buildRecentContext();const lorebook=await readLorebook();const template=parsePromptTemplate();const replace=value=>String(value??'').replace(/(?<!\\)\$0/g,()=>originText).replace(/(?<!\\)\$1/g,()=>contextChats).replace(/(?<!\\)\$2/g,()=>stripMachine(todoChats)).replace(/(?<!\\)\$3/g,()=>INDEPENDENT_OPERATION_RULES).replace(/(?<!\\)\$4/g,()=>lorebook);return template.map(message=>({...message,content:replace(message?.content)}));}
 function resolveRecordSlice(todoChats,referencePiece,options={}){const full=String(todoChats??'');const append=isAppendGeneration(options.generationType)&&options.baseMes&&full.startsWith(String(options.baseMes));if(!append)return{recordText:full,originText:getTablePrompt(referencePiece),append:false};const recordText=full.slice(String(options.baseMes).length).trim();const originText=referencePiece?.hash_sheets?getTablePromptByPiece(referencePiece):getTablePrompt(referencePiece);return{recordText,originText,append:true};}
-async function runIndependentApi(todoChats,referencePiece,isSilentMode,options={}){const slice=resolveRecordSlice(todoChats,referencePiece,options);if(slice.append&&!stripMachine(slice.recordText)){console.log('[Memo][independent] Continue本次没有新增可记录正文');return true;}const messages=await buildIndependentMessages(slice.recordText,slice.originText);const useMain=USER.tableBaseSetting.step_by_step_use_main_api??true;let rawContent;try{rawContent=useMain?await handleMainAPIRequest(messages,null,isSilentMode):await handleCustomAPIRequest(messages,null,true,isSilentMode);}catch(error){console.error('[Memo][independent] API请求异常',error);EDITOR.warning(`独立记录API请求失败：${error?.message||error}`);return false;}if(rawContent==='suspended')return false;if(typeof rawContent!=='string'||!rawContent.trim()||/^错误[:：]/.test(rawContent.trim())){console.error('[Memo][independent] API返回无效:',rawContent);EDITOR.warning('独立记录失败：API返回为空或错误内容，原表未修改。');return false;}const{matches}=getTableEditTag(rawContent);if(!Array.isArray(matches)||matches.length!==1){console.error('[Memo][independent] 模型tableEdit块数量异常:',matches?.length??0,rawContent);EDITOR.warning(`独立记录失败：模型必须且只能返回1个<tableEdit>，实际为${matches?.length??0}个。原表未修改。`);return false;}const result=executeMemoTableEdit(matches,referencePiece);if(!result.ok){console.error('[Memo][independent] tableEdit校验/执行失败:',result.error,matches);EDITOR.warning(`独立记录失败：${result.error}。原表未执行错误操作。`);return false;}attachValidatedRecord(referencePiece,rawContent,matches);await USER.saveChat();BASE.refreshContextView();updateSystemMessageTableStatus();console.log(`[Memo][independent] 严格记录完成并绑定当前swipe：${slice.append?'Continue增量｜':''}${result.noChange?'NO_CHANGE':`${result.count}项操作`}`);return true;}
+async function runIndependentApi(todoChats,referencePiece,isSilentMode,options={}){const slice=resolveRecordSlice(todoChats,referencePiece,options);if(slice.append&&!stripMachine(slice.recordText)){console.log('[Memo][independent] Continue本次没有新增可记录正文');return true;}const messages=await buildIndependentMessages(slice.recordText,slice.originText);const useMain=USER.tableBaseSetting.step_by_step_use_main_api??true;let rawContent;try{rawContent=useMain?await handleMainAPIRequest(messages,null,isSilentMode):await handleCustomAPIRequest(messages,null,true,isSilentMode);}catch(error){console.error('[Memo][independent] API请求异常',error);EDITOR.warning(`独立记录API请求失败：${error?.message||error}`);return false;}if(rawContent==='suspended')return false;if(typeof rawContent!=='string'||!rawContent.trim()||/^错误[:：]/.test(rawContent.trim())){console.error('[Memo][independent] API返回无效:',rawContent);EDITOR.warning('独立记录失败：API返回为空或错误内容，原表未修改。');return false;}const{matches}=getTableEditTag(rawContent);if(!Array.isArray(matches)||matches.length!==1){console.error('[Memo][independent] 模型tableEdit块数量异常:',matches?.length??0,rawContent);EDITOR.warning(`独立记录失败：模型必须且只能返回1个<tableEdit>，实际为${matches?.length??0}个。原表未修改。`);return false;}const result=executeMemoTableEdit(matches,referencePiece);if(!result.ok){console.error('[Memo][independent] tableEdit校验/执行失败:',result.error,matches);EDITOR.warning(`独立记录失败：${result.error}。原表未执行错误操作。`);return false;}attachValidatedRecord(referencePiece,rawContent,matches);saveMemoSnapshot(referencePiece);await USER.saveChat();BASE.refreshContextView();updateSystemMessageTableStatus();console.log(`[Memo][independent] 严格记录完成并绑定当前swipe：${slice.append?'Continue增量｜':''}${result.noChange?'NO_CHANGE':`${result.count}项操作`}`);return true;}
+
+function previousBaselineForCurrentPiece(piece){const chat=USER.getContext?.()?.chat;if(!Array.isArray(chat))return null;const index=chat.indexOf(piece);if(index<0)return null;for(let i=index-1;i>=0;i--){const candidate=chat[i];if(candidate?.is_user===false&&candidate?.hash_sheets&&typeof candidate.hash_sheets==='object')return copyHashSheets(candidate.hash_sheets);}return null;}
+function restoreHashSheets(snapshot){if(!snapshot||typeof snapshot!=='object')return false;BASE.hashSheetsToSheets(copyHashSheets(snapshot));return true;}
 
 export async function TableTwoStepSummary(mode='manual',options={}){if(USER.tableBaseSetting.isExtensionAble===false)return false;if(!['auto','manual'].includes(mode)){console.warn(`[Memo][independent] 已拒绝旧模式 ${mode}；一次API不允许fallback补记。`);return false;}if(mode==='auto'&&USER.tableBaseSetting.step_by_step===false)return false;const{piece:todoPiece}=USER.getChatPiece();if(!todoPiece){if(mode==='manual')EDITOR.error('未找到待填表的对话片段，请至少生成一条角色回复。');return false;}const todoChats=String(todoPiece.mes??'');if(mode==='manual'){const popupContentHtml=`<p>累计 ${todoChats.length} 长度的文本，是否开始独立填表？</p>`;const confirmResult=await newPopupConfirm(popupContentHtml,'取消','执行填表','stepwiseSummaryConfirm','不再提示','一直选是');if(confirmResult===false)return false;return await manualSummaryChat(todoChats,confirmResult,{});}return await manualSummaryChat(todoChats,'dont_remind_active',options);}
 
-export async function manualSummaryChat(todoChats,confirmResult,options={}){const{piece:initialPiece}=USER.getChatPiece();if(!initialPiece)return false;const isAutoMode=confirmResult==='dont_remind_active';if(!isAutoMode&&initialPiece.hash_sheets&&Object.keys(initialPiece.hash_sheets).length>0){try{await undoSheets(0);EDITOR.success('表格已恢复到上一版本。');}catch(error){EDITOR.error('恢复表格失败，操作中止。',error?.message||String(error),error);return false;}}repairMissingColumnsBeforeCleanup({notify:false});const{piece:referencePiece}=USER.getChatPiece();if(!referencePiece)return false;const ok=await runIndependentApi(todoChats,referencePiece,isAutoMode,options);if(ok&&!isAutoMode)reloadCurrentChat();return ok;}
+export async function manualSummaryChat(todoChats,confirmResult,options={}){const{piece:initialPiece}=USER.getChatPiece();if(!initialPiece)return false;const isAutoMode=confirmResult==='dont_remind_active';if(isAutoMode){repairMissingColumnsBeforeCleanup({notify:false});const{piece:referencePiece}=USER.getChatPiece();if(!referencePiece)return false;return await runIndependentApi(todoChats,referencePiece,true,options);}
+
+    // 手动立即填表是“整条当前消息重新记录”，不能用旧undoSheets重放当前tableEdit。
+    // 先完整备份当前Swipe状态；临时恢复到当前消息之前的基线；失败则原样回滚。
+    const backupHash=copyHashSheets(initialPiece.hash_sheets);
+    const backupMes=String(initialPiece.mes??'');
+    const swipeId=Number(initialPiece.swipe_id);
+    const backupSwipe=Array.isArray(initialPiece.swipes)&&Number.isInteger(swipeId)&&swipeId>=0&&swipeId<initialPiece.swipes.length?initialPiece.swipes[swipeId]:null;
+    const backupSwipeInfo=Array.isArray(initialPiece.swipe_info)&&Number.isInteger(swipeId)&&swipeId>=0&&initialPiece.swipe_info[swipeId]?JSON.parse(JSON.stringify(initialPiece.swipe_info[swipeId])):null;
+    const baseline=previousBaselineForCurrentPiece(initialPiece);
+    try{
+        if(baseline)restoreHashSheets(baseline);
+        else{const empty=BASE.initHashSheet?.();if(empty?.hash_sheets)restoreHashSheets(empty.hash_sheets);}
+        repairMissingColumnsBeforeCleanup({notify:false});
+        // 当前piece暂存基线，使独立记录prompt与严格执行都以同一状态开始。
+        saveMemoSnapshot(initialPiece);
+        const ok=await runIndependentApi(todoChats,initialPiece,false,{generationType:'manual'});
+        if(!ok)throw new Error('手动填表未成功完成');
+        reloadCurrentChat();
+        return true;
+    }catch(error){
+        console.error('[Memo][manual-refill] 手动填表失败，恢复原状态',error);
+        if(backupHash){initialPiece.hash_sheets=copyHashSheets(backupHash);restoreHashSheets(backupHash);}
+        initialPiece.mes=backupMes;
+        if(Array.isArray(initialPiece.swipes)&&Number.isInteger(swipeId)&&swipeId>=0&&swipeId<initialPiece.swipes.length)initialPiece.swipes[swipeId]=backupSwipe??backupMes;
+        if(Array.isArray(initialPiece.swipe_info)&&Number.isInteger(swipeId)&&swipeId>=0){if(backupSwipeInfo)initialPiece.swipe_info[swipeId]=backupSwipeInfo;else if(initialPiece.swipe_info[swipeId])delete initialPiece.swipe_info[swipeId].memo_hash_sheets;}
+        await USER.saveChat();BASE.refreshContextView();updateSystemMessageTableStatus();EDITOR.warning('手动填表失败：已恢复执行前的原表格和当前Swipe，不会留下半成品。');return false;
+    }
+}
