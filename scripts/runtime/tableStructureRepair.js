@@ -166,11 +166,11 @@ function installCurrentWorldMemoryGuards() {
 }
 
 /**
- * 在“表格整理”开始前，用标准列修复缺失表头，并安装整表重建保护。
- * 只补缺失列；已有额外自定义列保留，现有数据按列名重新对齐。
- * 不调用 API，不参与普通自动填表链。
+ * 用标准列修复缺失表头，并安装整表重建保护。
+ * notify=true用于“表格整理”按钮场景；普通请求前校验使用notify=false静默处理。
+ * 只补缺失列；已有额外自定义列保留，现有数据按列名重新对齐。不调用API。
  */
-function repairMissingColumnsBeforeCleanup() {
+function repairMissingColumnsBeforeCleanup({ notify = true } = {}) {
     const { piece } = USER.getChatPiece() || {};
     if (!piece) return [];
 
@@ -204,7 +204,7 @@ function repairMissingColumnsBeforeCleanup() {
                 ...rows.map(row => ['', ...row]),
             ];
 
-            // 此处先用原方法完成一次确定性的缺列修复，再安装guard，避免guard套guard。
+            // 此处先完成一次确定性的缺列修复，再安装guard，避免guard套guard。
             sheet.rebuildHashSheetByValueSheet(valueSheet);
             sheet.save(piece, true);
             repaired.push({
@@ -221,11 +221,13 @@ function repairMissingColumnsBeforeCleanup() {
         BASE.refreshContextView();
         updateSystemMessageTableStatus();
         USER.saveChat();
-        console.log('[Memo] 表格整理前已修复缺失表头:', repaired);
-        const summary = repaired
-            .map(item => `${item.tableName}: ${item.missingHeaders.join('、')}`)
-            .join('；');
-        EDITOR.success(`已修复缺失表头：${summary}`);
+        console.log('[Memo] 已修复缺失标准表头:', repaired);
+        if (notify) {
+            const summary = repaired
+                .map(item => `${item.tableName}: ${item.missingHeaders.join('、')}`)
+                .join('；');
+            EDITOR.success(`已修复缺失表头：${summary}`);
+        }
     }
 
     return repaired;
