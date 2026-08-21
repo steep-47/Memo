@@ -18,7 +18,7 @@ export function getColumnLetter(colIndex) {
     return letter;
 }
 
-export function filterSavingData(sheet, key=["uid", "name", "domain", "type", "enable", "required", "tochat", "triggerSend", "triggerSendDeep", "hashSheet", "cellHistory", "config"], withHead = false) {
+export function filterSavingData(sheet, key=["uid", "name", "domain", "type", "enable", "required", "tochat", "sendToContext", "triggerSend", "triggerSendDeep", "hashSheet", "cellHistory", "config"], withHead = false) {
     const r = {}
     key.forEach(k => {
         if(k === 'cellHistory') {
