@@ -1,5 +1,5 @@
 import './index.js';
-import './scripts/runtime/memoryContentRules.js?v=memo46';
+import './scripts/runtime/memoryContentRules.js?v=memo54';
 import './scripts/runtime/modeRuntimeControl.js?v=memo46';
 import './scripts/runtime/singleApiPromptRestore.js?v=memo47';
 import './scripts/runtime/singleApiFinish.js?v=memo46';
