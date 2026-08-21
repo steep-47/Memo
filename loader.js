@@ -1,3 +1,4 @@
+import './scripts/runtime/settingsBootstrap.js?v=memo58';
 import './index.js';
 import './scripts/runtime/memoryContentRules.js?v=memo57';
 import './scripts/runtime/modeRuntimeControl.js?v=memo46';
