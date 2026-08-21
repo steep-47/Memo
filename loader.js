@@ -1,6 +1,6 @@
 import './index.js';
 
-const RUNTIME_VERSION = 'memo73';
+const RUNTIME_VERSION = 'memo74';
 
 async function loadOptional(label, path) {
     try {
@@ -16,13 +16,13 @@ async function loadOptional(label, path) {
 }
 
 // 核心Memo(index.js)先加载；附加模块彼此隔离。
-// 记录链优先，结构迁移/整理/UI失败不得拖死正常记录。
+// 一次API记录链优先：结构化schema只调用一次模型，返回后本地拆成reply + 原生tableEdit。
 const modules = [
     ['设置归一', './scripts/runtime/settingsBootstrap.js'],
     ['记录模式控制', './scripts/runtime/modeRuntimeControl.js'],
     ['一次API提示恢复', './scripts/runtime/singleApiPromptRestore.js'],
+    ['一次API结构化双通道', './scripts/runtime/singleApiStructured.js'],
     ['一次API成功提示', './scripts/runtime/singleApiFinish.js'],
-    ['一次API诊断', './scripts/runtime/singleApiDiagnostic.js'],
     ['记录API开关', './scripts/ui/apiModeToggle.js'],
 
     ['七表规则', './scripts/runtime/memoryContentRules.js'],
@@ -37,4 +37,4 @@ for (const [label, path] of modules) {
     await loadOptional(label, path);
 }
 
-console.log('[Memo][loader] memo73 隔离式运行时加载完成');
+console.log('[Memo][loader] memo74 单次结构化运行时加载完成');
