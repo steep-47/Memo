@@ -3,13 +3,12 @@ import { executeTableEditActions, getTableEditTag, getTablePromptByPiece } from 
 import { handleCustomAPIRequest, handleMainAPIRequest, estimateTokenCount } from '../settings/standaloneAPI.js';
 import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
 import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js';
+import { ensureSevenTableWorld } from './sevenTableMigration.js';
 
 const INSTALL_FLAG = '__memoStableTableCleanupInstalled';
-const BUTTON_FLAG = 'memoStableCleanupBound';
 let running = false;
-let replacing = false;
 
-const SYSTEM_PROMPT = `你是Memo世界状态表格整理器。只整理现有六张表，不写剧情，不输出完整JSON表格。
+const SYSTEM_PROMPT = `你是Memo世界状态表格整理器。只整理现有七张表，不写剧情，不输出完整JSON表格。
 你的最终回复必须且只能包含一个完整<tableEdit>...</tableEdit>。
 表头结构由代码维护，你只能通过insertRow/updateRow/deleteRow整理数据行，不得创建、删除、改名或重排表头。
 
@@ -18,19 +17,17 @@ const SYSTEM_PROMPT = `你是Memo世界状态表格整理器。只整理现有�
 - 1角色状态表：只保存玩家本人最新状态，最多一行；NPC不得进入此表。
 - 2背包表：维护当前实际持有库存；同一物品重复行合并，数量/状态以较新明确事实为准，已完全失去的物品删除。
 - 3当前任务与约定表：只保留尚未结束事项；已完成/失败/取消/失效的行删除，重大结果可留在历史表。
-- 4人物表：NPC专属，同一NPC只保留一行。合并重复人物时综合姓名、别名/称呼、身份、外貌、关系和事件链判断，不得只因同名就强行合并。保存最后有效发展锚点：修为、主要能力、身份/所属、当前地点、年龄或最后确认时间、当前重要状态、主要目标/事项、与玩家关系。新明确事实覆盖旧锚点；未知留空，不得编造。
-- 5历史事件表：只保留真正影响未来推演的重要既成节点；突破/失败、势力变化、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争/宗门覆灭导致处境改变、死亡可保留；普通修炼、日常生活、重复过程和微小财富变化删除或压缩。
-- 人物最新状态与历史冲突时，以时间更晚且已明确发生的事实为准。
+- 4人物主表：NPC身份与关系主表，同一NPC只保留一行。综合姓名、别名/称呼、身份、外貌、关系和事件链识别实体；保存姓名、性别、别名/称呼、身份/所属、外貌特征、性格、与玩家关系、长期重要信息。
+- 5人物发展表：NPC最新发展锚点表，同一NPC只保留一行；保存姓名、修为、主要能力、当前地点、年龄或最后确认时间、当前重要状态、主要目标/重要事项。新确认事实覆盖旧锚点，不记录离线流水账。
+- 表4与表5必须指向同一NPC实体；不要因同名就强行合并，也不要因别名变化重复建人。
+- 6历史事件表：只保留真正影响未来推演的重要既成节点；突破/失败、势力变化、婚姻或重要亲属变化、重伤残疾/寿元重大损耗、重大机缘、战争/宗门覆灭导致处境改变、死亡可保留；普通修炼、日常生活、重复过程和微小财富变化删除或压缩。
+- 人物发展表最新状态与历史冲突时，以时间更晚且已明确发生的事实为准。
 - 写任何操作前先检查现有行；能update/delete解决就不要重复insert。
 - 没有任何需要整理的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。
 - 函数调用必须放在同一个HTML注释中，例如<tableEdit><!-- updateRow(...); deleteRow(...); --></tableEdit>。`;
 
 function escapeHtml(text) {
-    return String(text ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 async function buildRecentChat() {
@@ -46,10 +43,8 @@ async function buildRecentChat() {
     for (let i = filtered.length - 1; i >= 0 && collected.length < maxRows; i--) {
         const item = filtered[i];
         const line = `${item?.name || (item?.is_user ? 'user' : 'assistant')}: ${String(item?.mes ?? '')}`
-            .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
-            .trim();
+            .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '').trim();
         if (!line) continue;
-
         if (useTokenLimit && tokenLimit > 0) {
             const tokens = await estimateTokenCount(line);
             if (collected.length > 0 && totalTokens + tokens > tokenLimit) break;
@@ -64,71 +59,46 @@ async function runStableCleanup() {
     if (running) return EDITOR.warning('表格整理正在进行中');
     running = true;
     try {
+        ensureSevenTableWorld();
         repairMissingColumnsBeforeCleanup();
 
         const reference = BASE.getLastSheetsPiece();
         const piece = reference?.piece;
-        if (!piece?.hash_sheets) {
-            EDITOR.error('表格整理失败：没有找到可整理的表格记录');
-            return;
-        }
+        if (!piece?.hash_sheets) return EDITOR.error('表格整理失败：没有找到可整理的表格记录');
 
         const tableText = getTablePromptByPiece(piece);
-        if (!String(tableText || '').trim()) {
-            EDITOR.error('表格整理失败：当前表格内容无法读取');
-            return;
-        }
+        if (!String(tableText || '').trim()) return EDITOR.error('表格整理失败：当前表格内容无法读取');
         const recentChat = await buildRecentChat();
-        const userPrompt = `<当前六表>\n${tableText}\n</当前六表>\n<最近聊天>\n${recentChat}\n</最近聊天>\n\n请逐表检查重复、过期、错位和应合并的数据，并按现有rowIndex生成必要的tableEdit操作。不要为了“更完整”编造未知信息。`;
+        const userPrompt = `<当前七表>\n${tableText}\n</当前七表>\n<最近聊天>\n${recentChat}\n</最近聊天>\n\n请按0→1→2→3→4人物主表→5人物发展表→6历史事件逐表检查重复、过期、错位和应合并的数据，并按现有rowIndex生成必要的tableEdit操作。不要为了“更完整”编造未知信息。`;
 
         const useMainApi = USER.tableBaseSetting.use_main_api !== false;
         let rawContent;
         try {
-            rawContent = useMainApi
-                ? await handleMainAPIRequest(SYSTEM_PROMPT, userPrompt)
-                : await handleCustomAPIRequest(SYSTEM_PROMPT, userPrompt);
+            rawContent = useMainApi ? await handleMainAPIRequest(SYSTEM_PROMPT, userPrompt) : await handleCustomAPIRequest(SYSTEM_PROMPT, userPrompt);
         } catch (error) {
-            EDITOR.error('表格整理API请求失败', error?.message || String(error), error);
-            return;
+            return EDITOR.error('表格整理API请求失败', error?.message || String(error), error);
         }
-
-        if (rawContent === 'suspended') {
-            EDITOR.info('表格整理已取消');
-            return;
-        }
-        if (typeof rawContent !== 'string' || !rawContent.trim()) {
-            EDITOR.error('表格整理失败：API返回为空，原表未修改');
-            return;
-        }
+        if (rawContent === 'suspended') return EDITOR.info('表格整理已取消');
+        if (typeof rawContent !== 'string' || !rawContent.trim()) return EDITOR.error('表格整理失败：API返回为空，原表未修改');
 
         const { matches } = getTableEditTag(rawContent);
         if (!matches || matches.length === 0) {
             const tail = rawContent.replace(/\s+/g, ' ').trim().slice(-260);
             console.warn('[Memo][table-cleanup] AI未返回tableEdit:', rawContent);
-            EDITOR.error(`表格整理失败：模型未返回tableEdit，原表未修改｜末尾：${tail}`);
-            return;
+            return EDITOR.error(`表格整理失败：模型未返回tableEdit，原表未修改｜末尾：${tail}`);
         }
 
         const joined = matches.join('\n');
-        if (/NO_CHANGE/i.test(joined) && !/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined)) {
-            EDITOR.success('表格检查完成：当前无需整理');
-            return;
-        }
+        if (/NO_CHANGE/i.test(joined) && !/(?:insertRow|updateRow|deleteRow)\s*\(/.test(joined)) return EDITOR.success('表格检查完成：当前无需整理');
 
         if (USER.tableBaseSetting.bool_silent_refresh !== true) {
             const preview = `<div style="max-height:55vh;overflow:auto"><p>AI准备执行以下表格整理操作：</p><pre style="white-space:pre-wrap">${escapeHtml(joined)}</pre><p>确认后才会修改当前表格。</p></div>`;
             const confirmed = await EDITOR.callGenericPopup(preview, EDITOR.POPUP_TYPE.CONFIRM, '表格整理确认', { okButton: '执行', cancelButton: '取消' });
-            if (!confirmed) {
-                EDITOR.info('表格整理已取消，原表未修改');
-                return;
-            }
+            if (!confirmed) return EDITOR.info('表格整理已取消，原表未修改');
         }
 
         const ok = executeTableEditActions(matches, piece);
-        if (!ok) {
-            EDITOR.error('表格整理执行失败，未能保存操作');
-            return;
-        }
+        if (!ok) return EDITOR.error('表格整理执行失败，未能保存操作');
         USER.saveChat();
         BASE.refreshContextView();
         updateSystemMessageTableStatus();
@@ -141,49 +111,11 @@ async function runStableCleanup() {
     }
 }
 
-function bindStableButton() {
-    if (replacing) return;
-    const oldButton = document.querySelector('#table_clear_up');
-    if (!oldButton) return;
-    if (oldButton.dataset?.[BUTTON_FLAG] === '1') return;
-
-    replacing = true;
-    try {
-        // 直接替换DOM节点：原节点上的jQuery/原生事件监听器全部随节点丢弃。
-        // 这样旧 rebuildSheets() 不可能和新流程同时执行。
-        const newButton = oldButton.cloneNode(true);
-        newButton.dataset[BUTTON_FLAG] = '1';
-        oldButton.replaceWith(newButton);
-        newButton.addEventListener('click', event => {
-            event.preventDefault();
-            event.stopPropagation();
-            event.stopImmediatePropagation();
-            runStableCleanup();
-        });
-        console.log('[Memo] 表格整理按钮已硬接管，旧rebuildSheets监听器已移除');
-    } finally {
-        replacing = false;
-    }
-}
-
 function install() {
     if (window[INSTALL_FLAG]) return;
     window[INSTALL_FLAG] = true;
-
-    // 首次加载与延迟UI初始化都覆盖。
-    bindStableButton();
-    queueMicrotask(bindStableButton);
-    setTimeout(bindStableButton, 100);
-    setTimeout(bindStableButton, 500);
-    setTimeout(bindStableButton, 1500);
-
-    // 设置抽屉可能被重绘；只要旧按钮重新出现，就再次物理替换。
-    const observer = new MutationObserver(() => bindStableButton());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-
-    console.log('[Memo] 稳定tableEdit表格整理接管器已加载');
+    console.log('[Memo] 七表稳定tableEdit整理器已加载');
 }
 
 install();
-
-export { runStableCleanup, bindStableButton };
+export { runStableCleanup };
