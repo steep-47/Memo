@@ -1,4 +1,4 @@
-import { runStableCleanup } from './stableTableCleanup.js?v=memo70';
+import { runStableCleanup } from './stableTableCleanup.js?v=memo71';
 
 const INSTALL_FLAG = '__memoCleanupButtonBridgeInstalled';
 
