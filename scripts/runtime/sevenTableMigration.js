@@ -34,6 +34,17 @@ function templateName(raw) {
     }
 }
 
+function templateColumns(raw) {
+    try {
+        if (!raw?.uid) return [];
+        const t = new BASE.SheetTemplate(raw.uid);
+        const row = Array.isArray(t.hashSheet?.[0]) ? t.hashSheet[0] : [];
+        return row.slice(1).map(cellUid => norm(t.cells?.get?.(cellUid)?.data?.value));
+    } catch (_) {
+        return [];
+    }
+}
+
 function createGlobalTemplate(structure) {
     const t = new BASE.SheetTemplate();
     t.domain = 'global';
@@ -65,19 +76,23 @@ function syncGlobalTemplates() {
     if (!root) return false;
     const rawTemplates = Array.isArray(root.table_database_templates) ? root.table_database_templates : [];
     const names = rawTemplates.map(templateName);
-    const canonicalPrefix = STANDARD_NAMES.every((name, i) => names[i] === name);
-    if (canonicalPrefix && !names.includes(LEGACY_PERSON_NAME)) return false;
+    const canonicalDefs = canonicalStructures();
+    const canonicalValid = STANDARD_NAMES.every((name, i) => {
+        if (names[i] !== name) return false;
+        const actual = templateColumns(rawTemplates[i]);
+        return JSON.stringify(actual) === JSON.stringify(canonicalDefs[i]?.columns || []);
+    });
+    if (canonicalValid && !names.includes(LEGACY_PERSON_NAME)) return false;
 
     const customRaw = rawTemplates.filter((raw, i) => !STANDARD_OR_LEGACY_NAMES.has(names[i]));
     root.table_database_templates = [];
     root.table_selected_sheets = [];
 
-    canonicalStructures().forEach(structure => {
+    canonicalDefs.forEach(structure => {
         const t = createGlobalTemplate(structure);
         if (t.enable !== false) root.table_selected_sheets.push(t.uid);
     });
 
-    // 用户额外自定义模板保留在七张标准表之后。
     for (const raw of customRaw) {
         root.table_database_templates.push(raw);
         try {
@@ -157,7 +172,6 @@ function migrateCurrentChatSheets() {
     const projectedDev = legacy ? projectLegacyPerson(legacy, DEV_COLUMNS) : [];
     let changed = false;
 
-    // 逐张补齐七张标准表。人物两表从旧14列人物表按字段名迁移；其余缺表以空表补齐。
     for (const name of STANDARD_NAMES) {
         sheets = BASE.getChatSheets();
         if (sheets.some(sheet => sheet?.name === name)) continue;
