@@ -2,28 +2,15 @@ import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
 import { executeMemoTableEdit, saveMemoSnapshot } from './safeTableExecutor.js?v=memo78';
 
-const PREF_KEY = 'independent_record_api_enabled';
-const STRUCTURED_SCHEMA_NAME = 'memo_single_api_response';
-const handledMessages = new WeakMap();
-let pendingStructuredRequest = null;
-let armedGeneration = null;
-let streamRestore = null;
-let referenceRestore = null;
+const PREF_KEY='independent_record_api_enabled';
+const STRUCTURED_SCHEMA_NAME='memo_single_api_response';
+const handledMessages=new WeakMap();
+let pendingStructuredRequest=null;
+let armedGeneration=null;
+let streamRestore=null;
+let referenceRestore=null;
 
-const MEMO_SCHEMA = {
-    name: STRUCTURED_SCHEMA_NAME,
-    description: 'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',
-    strict: true,
-    value: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-            table_edit: { type: 'string', description: '仅填写Memo表格操作代码：insertRow/updateRow/deleteRow；没有变化时填写NO_CHANGE。不要包含<tableEdit>标签、Markdown或解释。' },
-            reply: { type: 'string', description: '给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。' },
-        },
-        required: ['table_edit', 'reply'],
-    },
-};
+const MEMO_SCHEMA={name:STRUCTURED_SCHEMA_NAME,description:'Memo一次API：同一次模型响应同时返回机器表格操作和正常可见回复。',strict:true,value:{type:'object',additionalProperties:false,properties:{table_edit:{type:'string',description:'仅填写Memo表格操作代码：insertRow/updateRow/deleteRow；没有变化时填写NO_CHANGE。不要包含<tableEdit>标签、Markdown或解释。'},reply:{type:'string',description:'给用户看的完整正常回复。保持角色原有写作风格和自然顺序；不要包含Memo、tableEdit、JSON说明或机器记录。'}},required:['table_edit','reply']}};
 
 function independentEnabled(){return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY]===true;}
 function singleApiActive(){const settings=USER?.tableBaseSetting;return !independentEnabled()&&settings?.isExtensionAble!==false&&settings?.isAiReadTable!==false&&settings?.isAiWriteTable!==false&&settings?.injection_mode!=='injection_off'&&settings?.step_by_step!==true;}
@@ -45,10 +32,31 @@ async function injectStructuredSchema(generateData){restoreReferenceOverride();i
 function markCurrentMessageTableEditsHandled(chat){try{const{matches}=getTableEditTag(String(chat?.mes??''));chat.tableEditMatches=Array.isArray(matches)?[...matches]:[];}catch(error){console.warn('[Memo][structured] 标记本轮tableEdit已处理失败',error);}}
 function restoreBaselineForFullReply(chatId,chat){try{const numericId=Number(chatId);const previous=Number.isInteger(numericId)&&numericId>0?BASE.getLastSheetsPiece(numericId-1,1000,false)?.piece:BASE.getLastSheetsPiece(1)?.piece;if(previous?.hash_sheets){BASE.hashSheetsToSheets(previous.hash_sheets);return true;}const empty=BASE.initHashSheet?.();if(empty?.hash_sheets)BASE.hashSheetsToSheets(empty.hash_sheets);return true;}catch(error){console.warn('[Memo][structured] 恢复本轮回复基线失败，将保持当前Sheet状态',error,chat);return false;}}
 function setExecutionStatus(chat,tableEdit,execution){chat.__memoStrictExecution={swipeId:Number(chat?.swipe_id??0),mes:String(chat?.mes??''),tableEdit:String(tableEdit??''),ok:execution?.ok===true,changed:execution?.changed===true,noChange:execution?.noChange===true,count:Number(execution?.count||0),error:String(execution?.error||''),at:Date.now()};}
-async function unpackStructuredReply(chatId){if(!singleApiActive())return;const pending=pendingStructuredRequest;if(!pending)return;if(Date.now()-pending.createdAt>5*60*1000){consumePending();console.warn('[Memo][structured] 丢弃过期结构化请求标记');return;}const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user)return;if(handledMessages.get(chat)===chat.mes)return;const currentMes=String(chat.mes??'');let basePrefix='';let structuredRaw=currentMes;const appendMode=isAppendGeneration(pending.generationType)&&pending.baseChat===chat&&pending.baseMes&&currentMes.startsWith(pending.baseMes);if(appendMode){basePrefix=pending.baseMes;structuredRaw=currentMes.slice(pending.baseMes.length).trim();}const payload=parseStructuredPayload(structuredRaw);if(!payload||typeof payload!=='object'||!('reply'in payload)||!('table_edit'in payload)){consumePending();console.warn(`[Memo][structured] ${pending.generationType||'reply'} 最终内容不是预期双字段结构：`,structuredRaw);EDITOR.warning('一次API结构化响应解析失败：本轮仍只有1次API调用，表格未自动记录。');return;}const reply=String(payload.reply??'').trim();const tableEdit=normalizeTableEdit(payload.table_edit);if(!reply){consumePending();EDITOR.warning('一次API结构化响应缺少正文 reply；本轮表格暂不执行。');return;}consumePending();chat.mes=basePrefix?appendStructuredSegment(basePrefix,reply,tableEdit):buildLegacyCompatibleMessage(reply,tableEdit);syncCurrentSwipe(chat);handledMessages.set(chat,chat.mes);if(!appendMode)restoreBaselineForFullReply(chatId,chat);const execution=executeMemoTableEdit(tableEdit,chat);markCurrentMessageTableEditsHandled(chat);setExecutionStatus(chat,tableEdit,execution);if(!execution.ok){try{saveMemoSnapshot(chat);}catch(error){console.error('[Memo][structured] 失败基线快照保存也失败',error);}console.error('[Memo][structured] 本轮table_edit校验/执行失败，已阻止旧宽松执行器兜底：',execution.error,tableEdit);EDITOR.warning(`一次API记录失败：${execution.error}。正文已保留，本轮未执行错误表格操作。`);}try{const context=USER.getContext();if(typeof context?.updateMessageBlock==='function')context.updateMessageBlock(Number(chatId),chat);}catch(error){console.warn('[Memo][structured] 重绘正常正文失败，但不影响已完成的严格表格执行',error);}console.log(`[Memo][structured] 单次响应已拆包：${appendMode?'续写追加':'完整回复'}｜table_edit=${tableEdit==='NO_CHANGE'?'NO_CHANGE':execution.ok?`${execution.count}项`:'失败'}｜reply=${reply.length}字`);}
+function persistFailureBaseline(chatId,chat,pending,appendMode){try{if(!appendMode)restoreBaselineForFullReply(chatId,chat);saveMemoSnapshot(chat);console.log(`[Memo][structured] 已为失败的${appendMode?'Continue':'完整回复'}保存正确基线快照`);}catch(error){console.error('[Memo][structured] 保存失败分支基线快照失败',error);}}
+
+async function unpackStructuredReply(chatId){
+    const pending=pendingStructuredRequest;if(!pending)return;
+    if(Date.now()-pending.createdAt>5*60*1000){consumePending();console.warn('[Memo][structured] 丢弃过期结构化请求标记');return;}
+    const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user)return;if(handledMessages.get(chat)===chat.mes)return;
+    const currentMes=String(chat.mes??'');let basePrefix='';let structuredRaw=currentMes;
+    const appendMode=isAppendGeneration(pending.generationType)&&pending.baseChat===chat&&pending.baseMes&&currentMes.startsWith(pending.baseMes);
+    if(appendMode){basePrefix=pending.baseMes;structuredRaw=currentMes.slice(pending.baseMes.length).trim();}
+    const payload=parseStructuredPayload(structuredRaw);
+    if(!payload||typeof payload!=='object'||!('reply'in payload)||!('table_edit'in payload)){
+        consumePending();persistFailureBaseline(chatId,chat,pending,appendMode);console.warn(`[Memo][structured] ${pending.generationType||'reply'} 最终内容不是预期双字段结构：`,structuredRaw);EDITOR.warning('一次API结构化响应解析失败：本轮仍只有1次API调用，表格未自动记录。');return;
+    }
+    const reply=String(payload.reply??'').trim();const tableEdit=normalizeTableEdit(payload.table_edit);
+    if(!reply){consumePending();persistFailureBaseline(chatId,chat,pending,appendMode);EDITOR.warning('一次API结构化响应缺少正文 reply；本轮表格暂不执行。');return;}
+    consumePending();chat.mes=basePrefix?appendStructuredSegment(basePrefix,reply,tableEdit):buildLegacyCompatibleMessage(reply,tableEdit);syncCurrentSwipe(chat);handledMessages.set(chat,chat.mes);
+    if(!appendMode)restoreBaselineForFullReply(chatId,chat);
+    const execution=executeMemoTableEdit(tableEdit,chat);markCurrentMessageTableEditsHandled(chat);setExecutionStatus(chat,tableEdit,execution);
+    if(!execution.ok){try{saveMemoSnapshot(chat);}catch(error){console.error('[Memo][structured] 失败基线快照保存也失败',error);}console.error('[Memo][structured] 本轮table_edit校验/执行失败，已阻止旧宽松执行器兜底：',execution.error,tableEdit);EDITOR.warning(`一次API记录失败：${execution.error}。正文已保留，本轮未执行错误表格操作。`);}
+    try{const context=USER.getContext();if(typeof context?.updateMessageBlock==='function')context.updateMessageBlock(Number(chatId),chat);}catch(error){console.warn('[Memo][structured] 重绘正常正文失败，但不影响已完成的严格表格执行',error);}
+    console.log(`[Memo][structured] 单次响应已拆包：${appendMode?'续写追加':'完整回复'}｜table_edit=${tableEdit==='NO_CHANGE'?'NO_CHANGE':execution.ok?`${execution.count}项`:'失败'}｜reply=${reply.length}字`);
+}
 
 const startedEvent=APP.event_types.GENERATION_STARTED;if(startedEvent)APP.eventSource.on(startedEvent,armGeneration);
 const promptEvent=APP.event_types.CHAT_COMPLETION_PROMPT_READY;if(promptEvent){APP.eventSource.on(promptEvent,prepareStructuredPrompt);if(typeof APP.eventSource.makeLast==='function')APP.eventSource.makeLast(promptEvent,prepareStructuredPrompt);}
 const settingsEvent=APP.event_types.CHAT_COMPLETION_SETTINGS_READY;if(settingsEvent){APP.eventSource.on(settingsEvent,injectStructuredSchema);if(typeof APP.eventSource.makeLast==='function')APP.eventSource.makeLast(settingsEvent,injectStructuredSchema);}
 const renderedEvent=APP.event_types.CHARACTER_MESSAGE_RENDERED;APP.eventSource.on(renderedEvent,unpackStructuredReply);if(typeof APP.eventSource.makeFirst==='function')APP.eventSource.makeFirst(renderedEvent,unpackStructuredReply);
-console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 分支基线 + Continue当前锚点 + 精确执行状态');
+console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 分支基线 + Continue当前锚点 + 失败分支快照保护');
