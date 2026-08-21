@@ -61,6 +61,7 @@ function createGlobalTemplate(structure) {
     });
     t.enable = structure.enable !== false;
     t.tochat = structure.tochat ?? structure.toChat ?? true;
+    t.sendToContext = true;
     t.required = structure.Required === true;
     t.triggerSend = structure.triggerSend;
     t.triggerSendDeep = structure.triggerSendDeep;
@@ -123,7 +124,6 @@ function splitLegacyAgeAnchor(raw) {
         const rest = value.replace(ageMatch[0], ' ').replace(/^[｜|,，;；\s]+|[｜|,，;；\s]+$/g,'').trim();
         return { age:ageMatch[1].trim(), confirmed:rest };
     }
-    // 无法可靠判断旧合并值语义时不猜年龄；保留到“最后确认时间”避免信息丢失。
     return { age:'', confirmed:value };
 }
 function projectLegacyPerson(sheet, columns) {
@@ -179,6 +179,19 @@ function createSheetFromStructure(structure, rows=[], piece=null) {
 }
 function ensureCanonicalSheet(existingSheets,name,rows,piece){ const found=existingSheets.find(sheet=>sheet?.name===name); if(found)return found; const structure=USER.tableBaseSetting.tableStructure.find(item=>item.tableName===name); return structure?createSheetFromStructure(structure,rows,piece):null; }
 
+function normalizeStandardContextFlags(sheets, piece) {
+    let changed = false;
+    for (const sheet of sheets) {
+        if (!sheet || !STANDARD_NAMES.includes(sheet.name)) continue;
+        if (sheet.sendToContext !== true) {
+            sheet.sendToContext = true;
+            sheet.save(piece, true);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 function migrateCurrentChatSheets() {
     const {piece}=USER.getChatPiece()||{}; if(!piece)return false;
     let sheets=BASE.getChatSheets(); if(!sheets.length)return false;
@@ -187,17 +200,17 @@ function migrateCurrentChatSheets() {
     const projectedMain=legacy?projectLegacyPerson(legacy,MAIN_COLUMNS):[];
     const projectedDev=legacy?projectLegacyPerson(legacy,DEV_COLUMNS):[];
     const projectedOldDev=oldDev?projectExistingDevelopment(oldDev):[];
-    let changed=false;
+    let changed=normalizeStandardContextFlags(sheets,piece);
     for(const name of STANDARD_NAMES){
         sheets=BASE.getChatSheets(); if(sheets.some(sheet=>sheet?.name===name))continue;
         const seedRows=name==='人物主表'?projectedMain:name==='人物发展表'?projectedDev:[];
         const created=ensureCanonicalSheet(sheets,name,seedRows,piece); changed=!!created||changed;
     }
     const current=BASE.getChatSheets();
+    changed=normalizeStandardContextFlags(current,piece)||changed;
     if(legacy){ changed=mergeProjectedRows(current.find(s=>s?.name==='人物主表'),MAIN_COLUMNS,projectedMain,piece)||changed; changed=mergeProjectedRows(current.find(s=>s?.name==='人物发展表'),DEV_COLUMNS,projectedDev,piece)||changed; }
     if(projectedOldDev.length){
         const dev=current.find(s=>s?.name==='人物发展表');
-        // 先把旧合并列内容投影到新两列，再由表头修复器统一列结构。
         changed=mergeProjectedRows(dev,DEV_COLUMNS,projectedOldDev,piece)||changed;
     }
     const refreshed=BASE.getChatSheets(); const byName=new Map(refreshed.map(sheet=>[sheet.name,sheet]));
@@ -205,7 +218,7 @@ function migrateCurrentChatSheets() {
     const custom=refreshed.filter(sheet=>sheet&&!canonicalSet.has(sheet.name)&&sheet.name!==LEGACY_PERSON_NAME); const ordered=[...canonical,...custom];
     const currentEnabledNames=refreshed.filter(s=>s?.enable&&s?.name!==LEGACY_PERSON_NAME).map(s=>s.name); const targetEnabledNames=ordered.filter(s=>s?.enable).map(s=>s.name);
     const needsReorder=currentEnabledNames.length!==targetEnabledNames.length||targetEnabledNames.some((name,i)=>currentEnabledNames[i]!==name)||!!legacy;
-    if(changed||needsReorder){ BASE.reSaveAllChatSheets(ordered); if(legacy?.uid&&piece.hash_sheets)delete piece.hash_sheets[legacy.uid]; USER.saveChat(); BASE.refreshContextView?.(); BASE.refreshTempView?.(true); console.log('[Memo] 世界状态表已统一为七表；人物发展表年龄/最后确认时间已分列'); return true; }
+    if(changed||needsReorder){ BASE.reSaveAllChatSheets(ordered); if(legacy?.uid&&piece.hash_sheets)delete piece.hash_sheets[legacy.uid]; USER.saveChat(); BASE.refreshContextView?.(); BASE.refreshTempView?.(true); console.log('[Memo] 世界状态表已统一为七表；标准七表固定发送到上下文；人物发展表年龄/最后确认时间已分列'); return true; }
     return false;
 }
 function ensureSevenTableWorld(){ const settingsChanged=normalizeSettingsStructure(); const templatesChanged=syncGlobalTemplates(); const dataChanged=migrateCurrentChatSheets(); if(settingsChanged)USER.saveSettings?.(); return settingsChanged||templatesChanged||dataChanged; }
