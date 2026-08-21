@@ -1,6 +1,6 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
-import { executeMemoTableEdit, saveMemoSnapshot } from './safeTableExecutor.js?v=memo79';
+import { executeMemoTableEdit, saveMemoSnapshot } from './safeTableExecutor.js?v=memo80';
 
 const PREF_KEY='independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME='memo_single_api_response';
