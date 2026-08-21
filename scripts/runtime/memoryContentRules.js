@@ -17,7 +17,9 @@ function replaceMarkedBlock(text, mark, block) {
     const value = String(text || '');
     if (!value.includes(mark)) return value + block;
     const escaped = mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return value.replace(new RegExp(`\\n${escaped}[\\s\\S]*?(?=\\n#|\\n\\[[^\\n]+规则\\]|$)`), block.trimEnd());
+    // 任意独立的 [xxx] 协议/规则标记都视为下一个块的边界。
+    // 这样刷新NPC规则时不会吞掉 [一次API固定收尾协议] 等其他模块的开始标记。
+    return value.replace(new RegExp(`\\n${escaped}[\\s\\S]*?(?=\\n#|\\n\\[[^\\n]+\\]|$)`), block.trimEnd());
 }
 
 function appendRules(text) {
