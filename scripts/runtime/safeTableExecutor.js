@@ -6,7 +6,6 @@ const STANDARD_NAMES = ['当前状态表','角色状态表','背包表','当前�
 const ACTION_NAMES = new Set(['insertRow','updateRow','deleteRow']);
 
 function norm(value) { return String(value ?? '').trim(); }
-
 function tableNameForIndex(tableIndex) {
     const index = Number(tableIndex);
     if (!Number.isInteger(index) || index < 0) return null;
@@ -15,13 +14,11 @@ function tableNameForIndex(tableIndex) {
     const structure = structures.find(item => Number(item?.tableIndex) === index);
     return norm(structure?.tableName) || null;
 }
-
 function sheetForIndex(tableIndex) {
     const tableName = tableNameForIndex(tableIndex);
     if (!tableName) return null;
     return BASE.getChatSheets?.().find(sheet => sheet?.name === tableName) ?? null;
 }
-
 function extractCalls(text) {
     const source = String(text ?? '');
     const calls = [];
@@ -61,7 +58,6 @@ function extractCalls(text) {
     }
     return { ok:true, calls };
 }
-
 function normalizeBlocks(raw) {
     const list = Array.isArray(raw) ? raw : [raw];
     return list.map(value => String(value ?? '')
@@ -71,7 +67,6 @@ function normalizeBlocks(raw) {
         .replace(/\s*-->\s*$/, '')
         .trim()).filter(Boolean);
 }
-
 function validateAction(call) {
     if (!ACTION_NAMES.has(call?.name)) return { ok:false, error:'未知操作' };
     const [tableIndex, arg1, arg2] = call.args || [];
@@ -81,7 +76,6 @@ function validateAction(call) {
     if (!sheet) return { ok:false, error:`#${index} ${tableNameForIndex(index) || '未知表'} 不存在` };
     const columnCount = Math.max(0, Number(sheet.getHeader?.().length) || 0);
     const rowCount = Math.max(0, Number(sheet.getRowCount?.()) - 1 || 0);
-
     if (call.name === 'insertRow') {
         const data = arg1;
         if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok:false, error:`insertRow(${index}) data必须是对象` };
@@ -91,14 +85,9 @@ function validateAction(call) {
         }
         return { ok:true, action:{ type:'insert', tableIndex:index, sheet, data } };
     }
-
     const rowIndex = Number(arg1);
-    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= rowCount) {
-        return { ok:false, error:`${call.name}(${index}) rowIndex=${arg1}越界；当前数据行数=${rowCount}` };
-    }
-
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= rowCount) return { ok:false, error:`${call.name}(${index}) rowIndex=${arg1}越界；当前数据行数=${rowCount}` };
     if (call.name === 'deleteRow') return { ok:true, action:{ type:'delete', tableIndex:index, sheet, rowIndex } };
-
     const data = arg2;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok:false, error:`updateRow(${index},${rowIndex}) data必须是对象` };
     for (const key of Object.keys(data)) {
@@ -107,7 +96,6 @@ function validateAction(call) {
     }
     return { ok:true, action:{ type:'update', tableIndex:index, sheet, rowIndex, data } };
 }
-
 function ordered(actions) {
     const priority = { update:0, insert:1, delete:2 };
     return [...actions].sort((a,b) => {
@@ -115,7 +103,6 @@ function ordered(actions) {
         return priority[a.type] - priority[b.type];
     });
 }
-
 function applyAction(action) {
     const sheet = action.sheet;
     if (action.type === 'update') {
@@ -143,11 +130,24 @@ function applyAction(action) {
     if (!cell) throw new Error(`deleteRow #${action.tableIndex} 找不到row=${action.rowIndex}`);
     cell.newAction(Cell.CellAction.deleteSelfRow, {}, false);
 }
-
 function saveSnapshot(piece, sheets = BASE.getChatSheets?.() ?? []) {
     if (!piece) return false;
     for (const sheet of sheets) sheet?.save?.(piece, true);
     return true;
+}
+function snapshotSheets(sheets) {
+    const snapshots = new Map();
+    for (const sheet of sheets) {
+        const valueSheet = sheet?.getContent?.(true);
+        if (Array.isArray(valueSheet)) snapshots.set(sheet, valueSheet.map(row => Array.isArray(row) ? [...row] : row));
+    }
+    return snapshots;
+}
+function rollbackSnapshots(snapshots) {
+    for (const [sheet, valueSheet] of snapshots.entries()) {
+        try { sheet.rebuildHashSheetByValueSheet(valueSheet); }
+        catch (error) { console.error('[Memo][safe-executor] 回滚表格失败', sheet?.name, error); }
+    }
 }
 
 export function parseMemoTableEdit(raw) {
@@ -179,12 +179,14 @@ export function executeMemoTableEdit(raw, piece = null) {
         saveSnapshot(targetPiece);
         return { ok:true, changed:false, noChange:true, count:0, error:'' };
     }
+    const touched = new Set(parsed.actions.map(action => action.sheet));
+    const snapshots = snapshotSheets(touched);
     try {
         for (const action of parsed.actions) applyAction(action);
-        const touched = new Set(parsed.actions.map(action => action.sheet));
         touched.forEach(sheet => sheet.save(targetPiece, true));
         return { ok:true, changed:true, noChange:false, count:parsed.actions.length, error:'' };
     } catch (error) {
+        rollbackSnapshots(snapshots);
         return { ok:false, changed:false, noChange:false, count:0, error:error?.message || String(error) };
     }
 }
