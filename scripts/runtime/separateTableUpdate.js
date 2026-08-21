@@ -15,6 +15,7 @@ insertRow(tableIndex:number,data:{[colIndex:number]:string|number})
 updateRow(tableIndex:number,rowIndex:number,data:{[colIndex:number]:string|number})
 deleteRow(tableIndex:number,rowIndex:number)
 已有对象优先update，真正新增才insert，明确结束/消失按表规则delete；不要修改表头。
+updateRow只能使用当前真实存在的rowIndex，越界不得自动新增；真正新增必须明确使用insertRow。
 人物主表与人物发展表通过姓名关联；年龄与最后确认时间必须分别维护。
 没有任何明确变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。
 最终只能输出一个完整<tableEdit>...</tableEdit>，不得输出剧情、JSON、解释或Markdown。`;
@@ -24,6 +25,22 @@ function stripMachine(text) {
         .replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '')
         .replace(/<(think|thinking)>[\s\S]*?<\/\1>/gi, '')
         .trim();
+}
+function stripTableEditOnly(text) {
+    return String(text ?? '').replace(/<tableEdit>[\s\S]*?<\/tableEdit>/gi, '').trim();
+}
+function attachValidatedRecord(piece, rawContent, matches) {
+    if (!piece) return;
+    const blocks = String(rawContent ?? '').match(/<tableEdit>[\s\S]*?<\/tableEdit>/gi);
+    const machineBlock = Array.isArray(blocks) && blocks.length
+        ? blocks[blocks.length - 1]
+        : `<tableEdit>${String(matches?.[matches.length - 1] ?? '<!-- NO_CHANGE -->')}</tableEdit>`;
+    const visible = stripTableEditOnly(piece.mes);
+    piece.mes = `${visible}\n\n${machineBlock}`.trim();
+    if (Array.isArray(piece.swipes)) {
+        const id = Number(piece.swipe_id);
+        if (Number.isInteger(id) && id >= 0 && id < piece.swipes.length) piece.swipes[id] = piece.mes;
+    }
 }
 
 function buildRecentContext() {
@@ -113,10 +130,11 @@ async function runIndependentApi(todoChats, referencePiece, isSilentMode) {
         return false;
     }
 
+    attachValidatedRecord(referencePiece, rawContent, matches);
     await USER.saveChat();
     BASE.refreshContextView();
     updateSystemMessageTableStatus();
-    console.log(`[Memo][independent] 严格记录完成：${result.noChange ? 'NO_CHANGE' : `${result.count}项操作`}`);
+    console.log(`[Memo][independent] 严格记录完成并绑定当前swipe：${result.noChange ? 'NO_CHANGE' : `${result.count}项操作`}`);
     return true;
 }
 
@@ -142,7 +160,6 @@ export async function TableTwoStepSummary(mode = 'manual') {
         if (confirmResult === false) return false;
         return await manualSummaryChat(todoChats, confirmResult);
     }
-
     return await manualSummaryChat(todoChats, 'dont_remind_active');
 }
 
@@ -164,7 +181,6 @@ export async function manualSummaryChat(todoChats, confirmResult) {
     repairMissingColumnsBeforeCleanup({ notify:false });
     const { piece: referencePiece } = USER.getChatPiece();
     if (!referencePiece) return false;
-
     const ok = await runIndependentApi(todoChats, referencePiece, isAutoMode);
     if (ok && !isAutoMode) reloadCurrentChat();
     return ok;
