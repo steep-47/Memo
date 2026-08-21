@@ -15,9 +15,11 @@ function upgradeKnownOldPrompts(settings){const message=String(settings?.message
 function patchPrompts(settings){if(!settings||typeof settings!=='object')return;normalizeSettingsStructure(settings);if(settings!==defaultSettings)upgradeKnownOldPrompts(settings);if('message_template'in settings)settings.message_template=appendRules(normalizeAgeAnchorPrompt(settings.message_template));if('refresh_system_message_template'in settings)settings.refresh_system_message_template=appendRules(normalizeAgeAnchorPrompt(settings.refresh_system_message_template));if('refresh_user_message_template'in settings)settings.refresh_user_message_template=appendRules(normalizeAgeAnchorPrompt(settings.refresh_user_message_template));}
 function normalized(values){return(values||[]).map(value=>String(value||'').trim());}
 function migrateLegacyPlayerSheet(){try{const sheet=BASE.getChatSheets().find(item=>item?.name==='角色状态表');if(!sheet)return false;const header=normalized(sheet.getHeader?.()||[]);if(header.length===PLAYER_COLUMNS.length&&PLAYER_COLUMNS.every((v,i)=>header[i]===v))return false;const old=PLAYER_COLUMNS.filter(col=>col!=='性别');if(header.length!==old.length||!old.every((v,i)=>header[i]===v))return false;const valueSheet=sheet.getContent?.(true);if(!Array.isArray(valueSheet)||!valueSheet.length)return false;const migrated=valueSheet.map((row,rowIndex)=>{const next=Array.isArray(row)?row.slice():[];next.splice(2,0,rowIndex===0?'性别':'');return next;});sheet.rebuildHashSheetByValueSheet(migrated);sheet.markPositionCacheDirty?.();sheet.save(undefined,true);USER.saveChat();return true;}catch(error){console.warn('[Memo] 角色状态表旧结构迁移失败，保留原数据',error);return false;}}
-patchPrompts(defaultSettings);
 function patchCurrentSettingsAndData(){patchPrompts(USER?.tableBaseSetting);migrateLegacyPlayerSheet();ensureSevenTableWorld();}
-function repairBeforePrompt(){patchCurrentSettingsAndData();repairMissingColumnsBeforeCleanup({notify:false});}
-queueMicrotask(patchCurrentSettingsAndData);setTimeout(patchCurrentSettingsAndData,250);setTimeout(patchCurrentSettingsAndData,1000);setTimeout(patchCurrentSettingsAndData,2000);
+function safePatchCurrentSettingsAndData(){try{patchCurrentSettingsAndData();}catch(error){console.warn('[Memo] 七表结构迁移跳过：不阻断正常聊天/记录',error);}}
+function repairBeforePrompt(){try{patchCurrentSettingsAndData();repairMissingColumnsBeforeCleanup({notify:false});}catch(error){console.warn('[Memo] 请求前七表校验失败，已降级继续生成，不阻断一次API/独立记录',error);}}
+
+try{patchPrompts(defaultSettings);}catch(error){console.warn('[Memo] 默认提示规则补丁失败，继续加载',error);}
+queueMicrotask(safePatchCurrentSettingsAndData);setTimeout(safePatchCurrentSettingsAndData,250);setTimeout(safePatchCurrentSettingsAndData,1000);setTimeout(safePatchCurrentSettingsAndData,2000);
 const promptEvent=APP.event_types.CHAT_COMPLETION_PROMPT_READY;APP.eventSource.on(promptEvent,repairBeforePrompt);if(typeof APP.eventSource.makeFirst==='function')APP.eventSource.makeFirst(promptEvent,repairBeforePrompt);
-console.log('[Memo] 七表职责、NPC年龄/确认时间分列、长期发展锚点与请求前结构校验已加载');
+console.log('[Memo] 七表职责/NPC锚点已加载；结构迁移失败时不会阻断记录');
