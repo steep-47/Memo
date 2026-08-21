@@ -6,18 +6,25 @@ const STANDARD_NAMES = ['当前状态表','角色状态表','背包表','当前�
 const ACTION_NAMES = new Set(['insertRow','updateRow','deleteRow']);
 
 function norm(value) { return String(value ?? '').trim(); }
+function visiblePromptSheets() {
+    return (BASE.getChatSheets?.() ?? [])
+        .filter(sheet => sheet?.enable)
+        .filter(sheet => sheet?.sendToContext !== false);
+}
 function tableNameForIndex(tableIndex) {
     const index = Number(tableIndex);
     if (!Number.isInteger(index) || index < 0) return null;
     if (index < STANDARD_NAMES.length) return STANDARD_NAMES[index];
-    const structures = Array.isArray(USER?.tableBaseSetting?.tableStructure) ? USER.tableBaseSetting.tableStructure : [];
-    const structure = structures.find(item => Number(item?.tableIndex) === index);
-    return norm(structure?.tableName) || null;
+    return norm(visiblePromptSheets()[index]?.name) || null;
 }
 function sheetForIndex(tableIndex) {
-    const tableName = tableNameForIndex(tableIndex);
-    if (!tableName) return null;
-    return BASE.getChatSheets?.().find(sheet => sheet?.name === tableName) ?? null;
+    const index = Number(tableIndex);
+    if (!Number.isInteger(index) || index < 0) return null;
+    if (index < STANDARD_NAMES.length) {
+        const tableName = STANDARD_NAMES[index];
+        return BASE.getChatSheets?.().find(sheet => sheet?.name === tableName) ?? null;
+    }
+    return visiblePromptSheets()[index] ?? null;
 }
 function extractCalls(text) {
     const source = String(text ?? '');
@@ -73,7 +80,7 @@ function validateAction(call) {
     const index = Number(tableIndex);
     if (!Number.isInteger(index) || index < 0) return { ok:false, error:`${call.name} tableIndex无效` };
     const sheet = sheetForIndex(index);
-    if (!sheet) return { ok:false, error:`#${index} ${tableNameForIndex(index) || '未知表'} 不存在` };
+    if (!sheet) return { ok:false, error:`#${index} ${tableNameForIndex(index) || '未知/不可见表'} 不存在` };
     const columnCount = Math.max(0, Number(sheet.getHeader?.().length) || 0);
     const rowCount = Math.max(0, Number(sheet.getRowCount?.()) - 1 || 0);
     if (call.name === 'insertRow') {
@@ -183,8 +190,6 @@ export function executeMemoTableEdit(raw, piece = null) {
     const snapshots = snapshotSheets(touched);
     try {
         for (const action of parsed.actions) applyAction(action);
-        // 每条assistant消息都必须保存完整当前表格快照；不能只保存被改动的Sheet，
-        // 否则下一轮BASE.hashSheetsToSheets会把当前piece中缺失的Sheet初始化为空。
         saveSnapshot(targetPiece);
         return { ok:true, changed:true, noChange:false, count:parsed.actions.length, error:'' };
     } catch (error) {
