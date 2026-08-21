@@ -1,6 +1,6 @@
 import './index.js';
 
-const RUNTIME_VERSION = 'memo89';
+const RUNTIME_VERSION = 'memo90';
 
 async function loadOptional(label, path) {
     try {
@@ -15,7 +15,7 @@ async function loadOptional(label, path) {
     }
 }
 
-// 核心Memo(index.js)先加载；新增运行链统一使用memo89缓存实例。
+// 核心Memo(index.js)先加载；新增运行链统一使用memo90缓存实例。
 // 一次API：同一次模型响应返回table_edit + reply，本地严格执行，不进行第二次补记。
 // 独立记录API：正文后额外1次记录API，使用纯tableEdit协议与同一严格执行器。
 const modules = [
@@ -37,4 +37,4 @@ const modules = [
 ];
 
 for (const [label, path] of modules) await loadOptional(label, path);
-console.log('[Memo][loader] memo89 统一严格记录运行时加载完成');
+console.log('[Memo][loader] memo90 统一严格记录运行时加载完成');

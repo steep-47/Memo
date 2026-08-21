@@ -64,6 +64,8 @@ const parserCases = [
     ['NO_CHANGE;deleteRow(0,0)', false, false],
     ['updateRow(0,0,{0:"x"});deleteRow(0,0)', false, false],
     ['evil(0)', false, false],
+    ['INSERTINTO1VALUES({0:"x"})', false, false],
+    ['INSERT INTO 1 VALUES ({0:"x"})', false, false],
     ['insertRow(7,{0:"x"})', false, false],
 ];
 for (const [input, ok, noChange] of parserCases) {
@@ -86,13 +88,13 @@ const restoreResult = restoreMemoSnapshot({ injected: true });
 if (restoreResult.ok) throw new Error('中途失败的快照恢复被误报成功');
 if (JSON.stringify(sheets.map(sheet => sheet.rows)) !== JSON.stringify(beforeRestoreRows)) throw new Error('中途失败的快照恢复未完整回滚');
 
-console.log('runtime-safety-audit PASS: parser=8, numeric-zero=1, save-failure-full-rollback=1, restore-failure-full-rollback=1');
+console.log('runtime-safety-audit PASS: parser=10, numeric-zero=1, save-failure-full-rollback=1, restore-failure-full-rollback=1');
 
 let structuredSource = await fs.readFile(new URL('../scripts/runtime/singleApiStructured.js', import.meta.url), 'utf8');
 structuredSource = structuredSource
     .replace("import { APP, BASE, EDITOR, USER } from '../../core/manager.js';", 'const { APP, BASE, EDITOR, USER } = globalThis.__structuredMocks;')
     .replace("import { getTableEditTag } from '../../index.js';", 'const { getTableEditTag } = globalThis.__structuredMocks;')
-    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo89';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
+    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo90';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
 const handlers = new Map();
 const baselineSheet = new FakeSheet('当前状态表');
 const originalBaselineRows = structuredClone(baselineSheet.rows);
@@ -140,6 +142,10 @@ if (customRequest.json_schema) throw new Error('自定义OpenAI端点仍被注�
 if (!customRequest.custom_include_body?.includes('response_format:\n  type: json_object')) throw new Error('自定义OpenAI端点未注入json_object请求参数');
 if (customRequest.messages.length !== 2 || !customRequest.messages[1]?.content?.includes('最终content必须只输出一个合法JSON对象')) throw new Error('自定义OpenAI端点未追加JSON对象末尾协议');
 if (!customRequest.messages[1]?.content?.includes('此表格当前为空') || !customRequest.messages[1]?.content?.includes('首次记录只能insertRow')) throw new Error('自定义OpenAI端点缺少空表insert硬约束');
+if (!customRequest.messages[1]?.content?.includes('table_edit不是SQL') || !customRequest.messages[1]?.content?.includes('insertRow(tableIndex,{columnIndex:value,...})') || !customRequest.messages[1]?.content?.includes('updateRow(tableIndex,rowIndex,{columnIndex:value,...})') || !customRequest.messages[1]?.content?.includes('deleteRow(tableIndex,rowIndex)')) throw new Error('自定义OpenAI端点缺少非SQL声明或完整合法函数语法');
+if (!customRequest.messages[1]?.content?.includes('INSERT、INTO、VALUES、UPDATE、DELETE、SQL')) throw new Error('自定义OpenAI端点缺少SQL关键字禁止规则');
+const schemaDescription = compatibleRequest.json_schema?.value?.properties?.table_edit?.description || '';
+if (!schemaDescription.includes('这不是SQL') || !schemaDescription.includes('insertRow(tableIndex,{columnIndex:value,...})') || !schemaDescription.includes('INSERT、INTO、VALUES、UPDATE、DELETE、SQL')) throw new Error('原生JSON schema未同步非SQL协议');
 structuredContext.chat.push({ is_user: false, mes: JSON.stringify({ table_edit: 'updateRow(0,0,{0:"new"})', reply: 'visible' }), swipe_id: 0, swipes: [''] });
 await handlers.get('rendered')(1);
 if (executeCount !== 0) throw new Error('基线恢复失败后仍调用严格执行器');
