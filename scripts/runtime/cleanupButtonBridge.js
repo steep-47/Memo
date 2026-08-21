@@ -1,3 +1,5 @@
+import { runStableCleanup } from './stableTableCleanup.js?v=memo65';
+
 const INSTALL_FLAG = '__memoCleanupButtonBridgeInstalled';
 
 if (!window[INSTALL_FLAG]) {
@@ -13,8 +15,7 @@ if (!window[INSTALL_FLAG]) {
         event.stopImmediatePropagation();
 
         try {
-            const module = await import('./stableTableCleanup.js?v=memo64');
-            await module.runStableCleanup();
+            await runStableCleanup();
         } catch (error) {
             console.error('[Memo][table-cleanup] cleanup bridge failed:', error);
             const editor = globalThis?.toastr;
