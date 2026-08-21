@@ -122,10 +122,10 @@ export class SheetBase {
         const rows = valueSheet.length
         const usedCellUids = []; // 跟踪已使用的单元格uid
         const newHashSheet = Array.from({ length: rows }, (_, i) => Array.from({ length: cols }, (_, j) => {
-            const value = valueSheet[i][j] || '';
+            const value = valueSheet[i][j] ?? '';
             const cellType = this.getCellTypeByPosition(i, j);
             // 如果存在相同值的单元格，则复用该单元格，但排除已使用的单元格
-            const oldCell = this.findCellByValue(valueSheet[i][j] || '', cellType, usedCellUids)
+            const oldCell = this.findCellByValue(value, cellType, usedCellUids)
             if (oldCell) {
                 usedCellUids.push(oldCell.uid); // 标记为已使用
                 return oldCell.uid; // 复用已有单元格
@@ -133,7 +133,7 @@ export class SheetBase {
             const cell = new Cell(this);
             this.cells.set(cell.uid, cell);
             this.cellHistory.push(cell);
-            cell.data.value = valueSheet[i][j] || ''; // 设置单元格的值
+            cell.data.value = value; // 设置单元格的值，保留合法的数字0
             if (i === 0 && j === 0) {
                 cell.type = Cell.CellType.sheet_origin;
             } else if (i === 0) {
@@ -145,6 +145,7 @@ export class SheetBase {
             return cell.uid;
         }));
         this.hashSheet = newHashSheet
+        this.markPositionCacheDirty();
         return this
     }
 
