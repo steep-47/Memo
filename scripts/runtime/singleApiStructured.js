@@ -8,6 +8,7 @@ const handledMessages = new WeakMap();
 let pendingStructuredRequest = null;
 let armedGeneration = null;
 let streamRestore = null;
+let referenceRestore = null;
 
 const MEMO_SCHEMA = {
     name: STRUCTURED_SCHEMA_NAME,
@@ -33,7 +34,6 @@ const MEMO_SCHEMA = {
 function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
 }
-
 function singleApiActive() {
     const settings = USER?.tableBaseSetting;
     return !independentEnabled()
@@ -41,23 +41,40 @@ function singleApiActive() {
         && settings?.isAiWriteTable !== false
         && settings?.step_by_step !== true;
 }
-
 function isChatReplyGeneration(type, dryRun = false) {
     if (!singleApiActive() || dryRun) return false;
     const value = String(type ?? '').toLowerCase();
     return value !== 'quiet' && value !== 'impersonate';
 }
-
 function isAppendGeneration(type) {
     const value = String(type ?? '').toLowerCase();
     return value === 'continue' || value === 'append' || value === 'appendfinal';
 }
-
 function currentLastAssistant() {
     const chat = USER?.getContext?.()?.chat;
     if (!Array.isArray(chat) || !chat.length) return null;
     const last = chat[chat.length - 1];
     return last && last.is_user !== true ? last : null;
+}
+
+function restoreReferenceOverride() {
+    if (!referenceRestore) return;
+    const { original, timer } = referenceRestore;
+    referenceRestore = null;
+    if (timer) clearTimeout(timer);
+    if (typeof original === 'function') BASE.getReferencePiece = original;
+}
+function prepareContinueReference(type, dryRun) {
+    restoreReferenceOverride();
+    if (dryRun || !isAppendGeneration(type)) return;
+    if (USER?.tableBaseSetting?.isExtensionAble === false || USER?.tableBaseSetting?.isAiReadTable === false) return;
+    const current = currentLastAssistant();
+    if (!current?.hash_sheets || typeof BASE.getReferencePiece !== 'function') return;
+    const original = BASE.getReferencePiece;
+    BASE.getReferencePiece = () => current;
+    const timer = setTimeout(restoreReferenceOverride, 15000);
+    referenceRestore = { original, timer };
+    console.log('[Memo] Continue生成期间使用当前assistant的最新表格快照作为参考；请求参数组装后恢复默认引用逻辑');
 }
 
 function parseStructuredPayload(raw) {
@@ -75,7 +92,6 @@ function parseStructuredPayload(raw) {
     }
     return null;
 }
-
 function normalizeTableEdit(raw) {
     let value = String(raw ?? '').trim();
     if (!value || /^NO_CHANGE$/i.test(value)) return 'NO_CHANGE';
@@ -87,7 +103,6 @@ function normalizeTableEdit(raw) {
         .trim();
     return value || 'NO_CHANGE';
 }
-
 function buildLegacyCompatibleMessage(reply, tableEdit) {
     const visibleReply = String(reply ?? '').trim();
     const machineBlock = tableEdit === 'NO_CHANGE'
@@ -95,26 +110,22 @@ function buildLegacyCompatibleMessage(reply, tableEdit) {
         : `<tableEdit><!--\n${tableEdit}\n--></tableEdit>`;
     return `${visibleReply}\n\n${machineBlock}`.trim();
 }
-
 function appendStructuredSegment(base, reply, tableEdit) {
     const nextSegment = buildLegacyCompatibleMessage(reply, tableEdit);
     const prefix = String(base ?? '').trimEnd();
     return prefix ? `${prefix}\n\n${nextSegment}` : nextSegment;
 }
-
 function syncCurrentSwipe(chat) {
     if (!Array.isArray(chat?.swipes)) return;
     const id = Number(chat?.swipe_id);
     if (!Number.isInteger(id) || id < 0 || id >= chat.swipes.length) return;
     chat.swipes[id] = chat.mes;
 }
-
 function consumePending() {
     const pending = pendingStructuredRequest;
     pendingStructuredRequest = null;
     return pending;
 }
-
 function restoreStreamingSetting() {
     if (!streamRestore) return;
     const { settings, value, timer } = streamRestore;
@@ -122,8 +133,8 @@ function restoreStreamingSetting() {
     if (timer) clearTimeout(timer);
     try { settings.stream_openai = value; } catch (_) { /* noop */ }
 }
-
 function armGeneration(type, _options, dryRun) {
+    prepareContinueReference(type, dryRun);
     restoreStreamingSetting();
     if (!isChatReplyGeneration(type, dryRun)) {
         armedGeneration = null;
@@ -132,7 +143,6 @@ function armGeneration(type, _options, dryRun) {
     pendingStructuredRequest = null;
     armedGeneration = { type: String(type ?? ''), startedAt: Date.now() };
 }
-
 function prepareStructuredPrompt(eventData) {
     if (!armedGeneration || !singleApiActive() || eventData?.dryRun === true) return;
     const settings = USER?.getContext?.()?.chatCompletionSettings;
@@ -142,13 +152,13 @@ function prepareStructuredPrompt(eventData) {
     streamRestore = { settings, value: true, timer };
     console.log('[Memo][structured] 本轮结构化主回复临时关闭流式；完成参数计算后自动恢复用户设置');
 }
-
 async function injectStructuredSchema(generateData) {
+    // SETTINGS_READY一定晚于prompt组装；Continue引用只需覆盖到这里。
+    restoreReferenceOverride();
     if (!armedGeneration || !singleApiActive() || !generateData || typeof generateData !== 'object') {
         restoreStreamingSetting();
         return;
     }
-
     if (generateData.json_schema && generateData.json_schema?.name !== STRUCTURED_SCHEMA_NAME) {
         console.warn('[Memo][structured] 检测到其他扩展JSON schema，本轮Memo不覆盖该schema，避免破坏其他结构化输出。', generateData.json_schema);
         armedGeneration = null;
@@ -157,7 +167,6 @@ async function injectStructuredSchema(generateData) {
         EDITOR.warning('一次API记录已跳过：本轮已有其他结构化输出规则，Memo未覆盖它。');
         return;
     }
-
     const previousAssistant = currentLastAssistant();
     pendingStructuredRequest = {
         createdAt: Date.now(),
@@ -166,10 +175,8 @@ async function injectStructuredSchema(generateData) {
         baseMes: previousAssistant ? String(previousAssistant.mes ?? '') : '',
     };
     armedGeneration = null;
-
     try { generateData.json_schema = structuredClone(MEMO_SCHEMA); }
     catch (_) { generateData.json_schema = JSON.parse(JSON.stringify(MEMO_SCHEMA)); }
-
     restoreStreamingSetting();
     console.log('[Memo][structured] 已向本次真实角色回复注入双字段JSON schema');
 }
@@ -182,12 +189,10 @@ function markCurrentMessageTableEditsHandled(chat) {
         console.warn('[Memo][structured] 标记本轮tableEdit已处理失败', error);
     }
 }
-
 function saveCompleteSnapshot(piece) {
     if (!piece) return;
     for (const sheet of BASE.getChatSheets?.() ?? []) sheet?.save?.(piece, true);
 }
-
 function restoreBaselineForFullReply(chatId, chat) {
     try {
         const numericId = Number(chatId);
@@ -211,13 +216,11 @@ async function unpackStructuredReply(chatId) {
     if (!singleApiActive()) return;
     const pending = pendingStructuredRequest;
     if (!pending) return;
-
     if (Date.now() - pending.createdAt > 5 * 60 * 1000) {
         consumePending();
         console.warn('[Memo][structured] 丢弃过期结构化请求标记');
         return;
     }
-
     const chat = USER?.getContext?.()?.chat?.[chatId];
     if (!chat || chat.is_user) return;
     if (handledMessages.get(chat) === chat.mes) return;
@@ -233,7 +236,6 @@ async function unpackStructuredReply(chatId) {
         basePrefix = pending.baseMes;
         structuredRaw = currentMes.slice(pending.baseMes.length).trim();
     }
-
     const payload = parseStructuredPayload(structuredRaw);
     if (!payload || typeof payload !== 'object' || !('reply' in payload) || !('table_edit' in payload)) {
         consumePending();
@@ -241,7 +243,6 @@ async function unpackStructuredReply(chatId) {
         EDITOR.warning('一次API结构化响应解析失败：本轮仍只有1次API调用，表格未自动记录。');
         return;
     }
-
     const reply = String(payload.reply ?? '').trim();
     const tableEdit = normalizeTableEdit(payload.table_edit);
     if (!reply) {
@@ -257,46 +258,37 @@ async function unpackStructuredReply(chatId) {
     syncCurrentSwipe(chat);
     handledMessages.set(chat, chat.mes);
 
-    // 普通新回复、Swipe、Regenerate都必须以“当前消息之前”的快照为基线；
-    // Continue则在当前消息已有快照上增量执行。
     if (!appendMode) restoreBaselineForFullReply(chatId, chat);
-
     const execution = executeMemoTableEdit(tableEdit, chat);
     markCurrentMessageTableEditsHandled(chat);
     if (!execution.ok) {
-        // 即使操作无效，也把已经恢复的正确基线写入当前Swipe，禁止沿用旧Swipe的hash_sheets。
         saveCompleteSnapshot(chat);
         console.error('[Memo][structured] 本轮table_edit校验/执行失败，已阻止旧宽松执行器兜底：', execution.error, tableEdit);
         EDITOR.warning(`一次API记录失败：${execution.error}。正文已保留，本轮未执行错误表格操作。`);
     }
-
     try {
         const context = USER.getContext();
         if (typeof context?.updateMessageBlock === 'function') context.updateMessageBlock(Number(chatId), chat);
     } catch (error) {
         console.warn('[Memo][structured] 重绘正常正文失败，但不影响已完成的严格表格执行', error);
     }
-
     console.log(`[Memo][structured] 单次响应已拆包：${appendMode ? '续写追加' : '完整回复'}｜table_edit=${tableEdit === 'NO_CHANGE' ? 'NO_CHANGE' : execution.ok ? `${execution.count}项` : '失败'}｜reply=${reply.length}字`);
 }
 
 const startedEvent = APP.event_types.GENERATION_STARTED;
 if (startedEvent) APP.eventSource.on(startedEvent, armGeneration);
-
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
 if (promptEvent) {
     APP.eventSource.on(promptEvent, prepareStructuredPrompt);
     if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(promptEvent, prepareStructuredPrompt);
 }
-
 const settingsEvent = APP.event_types.CHAT_COMPLETION_SETTINGS_READY;
 if (settingsEvent) {
     APP.eventSource.on(settingsEvent, injectStructuredSchema);
     if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(settingsEvent, injectStructuredSchema);
 }
-
 const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, unpackStructuredReply);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(renderedEvent, unpackStructuredReply);
 
-console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 正确分支基线 + Continue增量 + 单轮临时非流式');
+console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 分支基线 + Continue当前锚点 + 单轮临时非流式');
