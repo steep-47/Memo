@@ -1,4 +1,4 @@
-import { runStableCleanup } from './stableTableCleanup.js?v=memo67';
+import { runStableCleanup } from './stableTableCleanup.js?v=memo69';
 
 const INSTALL_FLAG = '__memoCleanupButtonBridgeInstalled';
 
@@ -9,7 +9,6 @@ if (!window[INSTALL_FLAG]) {
         const target = event.target?.closest?.('#table_rebuild_button, #table_clear_up');
         if (!target) return;
 
-        // 在捕获阶段截断旧 document 委托，确保只进入七表稳定整理流程。
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
