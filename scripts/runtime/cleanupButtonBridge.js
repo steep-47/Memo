@@ -7,14 +7,13 @@ if (!window[INSTALL_FLAG]) {
         const target = event.target?.closest?.('#table_rebuild_button, #table_clear_up');
         if (!target) return;
 
-        // Intercept before chatSheetsDataView's delegated document click handler
-        // can call the legacy rebuildSheets() JSON flow.
+        // 在捕获阶段截断旧 document 委托，确保只进入七表稳定整理流程。
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
 
         try {
-            const module = await import('./stableTableCleanup.js?v=memo61');
+            const module = await import('./stableTableCleanup.js?v=memo64');
             await module.runStableCleanup();
         } catch (error) {
             console.error('[Memo][table-cleanup] cleanup bridge failed:', error);
@@ -23,5 +22,5 @@ if (!window[INSTALL_FLAG]) {
         }
     }, true);
 
-    console.log('[Memo] 表格整理真实按钮桥接已加载：#table_rebuild_button / #table_clear_up');
+    console.log('[Memo] 七表整理按钮桥接已加载：#table_rebuild_button / #table_clear_up');
 }
