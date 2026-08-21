@@ -1,5 +1,6 @@
-import { BASE, USER } from '../../core/manager.js';
+import { APP, BASE, USER } from '../../core/manager.js';
 import { defaultSettings } from '../../data/pluginSetting.js';
+import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js';
 
 const RULE_MARK = '[角色身份归一规则]';
 const NPC_ANCHOR_MARK = '[NPC长期发展锚点规则]';
@@ -158,13 +159,28 @@ function migrateLegacySheets() {
 }
 
 patchSettings(defaultSettings);
+
 function patchCurrentSettingsAndData() {
     patchSettings(USER?.tableBaseSetting);
     migrateLegacySheets();
 }
+
+function repairBeforePrompt() {
+    // 导入旧预设、手动删列/改表头等都可能发生在插件初始化之后。
+    // 每次真正生成聊天提示前再次统一设置与表结构；本地操作，不增加API调用。
+    patchCurrentSettingsAndData();
+    repairMissingColumnsBeforeCleanup({ notify: false });
+}
+
 queueMicrotask(patchCurrentSettingsAndData);
 setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
 
-console.log('[世界状态记忆表格] 玩家/NPC职责、身份归一与NPC长期发展锚点规则已加载');
+const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
+APP.eventSource.on(promptEvent, repairBeforePrompt);
+if (typeof APP.eventSource.makeFirst === 'function') {
+    APP.eventSource.makeFirst(promptEvent, repairBeforePrompt);
+}
+
+console.log('[世界状态记忆表格] 玩家/NPC职责、身份归一、NPC长期发展锚点与请求前结构校验已加载');
