@@ -17,24 +17,50 @@ function replaceMarkedBlock(text, mark, block) {
     const escaped = mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return value.replace(new RegExp(`\\n${escaped}[\\s\\S]*?(?=\\n#|\\n\\[[^\\n]+\\]|$)`), block.trimEnd());
 }
-
 function appendRules(text) {
     return replaceMarkedBlock(replaceMarkedBlock(text, RULE_MARK, compactRules), NPC_ANCHOR_MARK, npcAnchorRules);
+}
+
+function preserveSingleApiProtocol(oldText, nextText) {
+    const value = String(oldText || '');
+    const start = value.indexOf('[一次API固定收尾协议]');
+    if (start < 0) return nextText;
+    const endMark = '[/一次API固定收尾协议]';
+    const end = value.indexOf(endMark, start);
+    if (end < 0) return nextText;
+    const block = value.slice(start, end + endMark.length);
+    return `${String(nextText || '').trim()}\n\n${block}`.trim();
+}
+
+function upgradeKnownOldPrompts(settings) {
+    const message = String(settings?.message_template || '');
+    if (message.includes('## 表格：0当前状态 / 1角色状态 / 2背包 / 3当前任务与约定 / 4人物 / 5历史事件')
+        || message.includes('六张表维护当前事实状态')) {
+        settings.message_template = preserveSingleApiProtocol(message, defaultSettings.message_template);
+    }
+
+    const refreshSystem = String(settings?.refresh_system_message_template || '');
+    if (refreshSystem.includes('人物表保存NPC最后有效发展锚点') || refreshSystem.includes('现有六张表')) {
+        settings.refresh_system_message_template = defaultSettings.refresh_system_message_template;
+    }
+
+    const refreshUser = String(settings?.refresh_user_message_template || '');
+    if (refreshUser.includes('4人物→5历史事件') || refreshUser.includes('六张表')) {
+        settings.refresh_user_message_template = defaultSettings.refresh_user_message_template;
+    }
 }
 
 function patchPrompts(settings) {
     if (!settings || typeof settings !== 'object') return;
     normalizeSettingsStructure(settings);
+    if (settings !== defaultSettings) upgradeKnownOldPrompts(settings);
     if ('message_template' in settings) settings.message_template = appendRules(settings.message_template);
     if ('refresh_system_message_template' in settings) settings.refresh_system_message_template = appendRules(settings.refresh_system_message_template);
     if ('refresh_user_message_template' in settings) settings.refresh_user_message_template = appendRules(settings.refresh_user_message_template);
 }
 
-function normalized(values) {
-    return (values || []).map(value => String(value || '').trim());
-}
+function normalized(values) { return (values || []).map(value => String(value || '').trim()); }
 
-// 保留更老角色状态表（无“性别”列）的安全迁移；NPC六→七表迁移由 sevenTableMigration.js 统一负责。
 function migrateLegacyPlayerSheet() {
     try {
         const sheet = BASE.getChatSheets().find(item => item?.name === '角色状态表');
@@ -68,7 +94,6 @@ function patchCurrentSettingsAndData() {
     migrateLegacyPlayerSheet();
     ensureSevenTableWorld();
 }
-
 function repairBeforePrompt() {
     patchCurrentSettingsAndData();
     repairMissingColumnsBeforeCleanup({ notify: false });
@@ -78,9 +103,7 @@ queueMicrotask(patchCurrentSettingsAndData);
 setTimeout(patchCurrentSettingsAndData, 250);
 setTimeout(patchCurrentSettingsAndData, 1000);
 setTimeout(patchCurrentSettingsAndData, 2000);
-
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
 APP.eventSource.on(promptEvent, repairBeforePrompt);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(promptEvent, repairBeforePrompt);
-
-console.log('[Memo] 七表职责、玩家/NPC身份归一、NPC长期发展锚点与请求前结构校验已加载');
+console.log('[Memo] 七表职责、旧六表提示迁移、NPC长期发展锚点与请求前结构校验已加载');
