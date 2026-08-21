@@ -4,10 +4,10 @@ import { getTableEditTag, initTableData } from '../../index.js';
 const PREF_KEY = 'independent_record_api_enabled';
 let lastPromptState = null;
 
-const FINAL_REMINDER_MARKER = '[Memo最终输出阶段-v2]';
-const USER_REMINDER_MARKER = '[Memo本轮机器记录-v2]';
-const FINAL_REMINDER = `${FINAL_REMINDER_MARKER}\n这是本轮最终且必须执行的输出协议。完成剧情/回答主体后，不得直接结束回复，也不得先输出选项、伊依留言、<details>、<summary>或其他尾部内容。必须先检查七张表并输出恰好一个完整<tableEdit>...</tableEdit>。有变化时把全部insertRow/updateRow/deleteRow放在同一个HTML注释中；无变化也必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。固定顺序：主体 → tableEdit → 选项/留言/折叠内容 → 结束。不要只在思考中处理tableEdit，它必须真实出现在最终文本。`;
-const USER_REMINDER = `\n\n${USER_REMINDER_MARKER}\n完成我这条消息对应的正文主体后，先输出一次<tableEdit>机器记录，再输出选项、留言、<details>/<summary>等尾部内容；无表格变化也必须输出<tableEdit><!-- NO_CHANGE --></tableEdit>。不要在tableEdit之前结束回复。`;
+const FINAL_REMINDER_MARKER = '[Memo最先输出tableEdit-v3]';
+const USER_REMINDER_MARKER = '[Memo本轮机器记录-v3]';
+const FINAL_REMINDER = `${FINAL_REMINDER_MARKER}\n这是本轮最终且必须执行的输出协议：你的第一段输出必须是恰好一个完整<tableEdit>...</tableEdit>，在它之前禁止输出任何正文、标题、状态栏、选项、留言、<details>或<summary>。有变化时把全部insertRow/updateRow/deleteRow放在同一个HTML注释中；无变化时第一段输出<tableEdit><!-- NO_CHANGE --></tableEdit>。完成tableEdit后再正常生成全部剧情/回答和尾部内容。固定顺序：tableEdit → 主体 → 选项/留言/折叠内容 → 结束。tableEdit必须真实出现在最终文本，不能只在思考中处理。`;
+const USER_REMINDER = `\n\n${USER_REMINDER_MARKER}\n请把机器记录放在本轮回复最前面：第一段先输出完整<tableEdit>；没有变化也输出<tableEdit><!-- NO_CHANGE --></tableEdit>。tableEdit之后再开始正文、选项、留言或<details>/<summary>。`;
 
 function independentEnabled() {
     return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
@@ -26,6 +26,12 @@ function getRole() {
     }
 }
 
+function compactHead(text, maxLength = 90) {
+    const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '（空）';
+    return normalized.slice(0, maxLength).replace(/[<>]/g, ch => ch === '<' ? '‹' : '›');
+}
+
 function compactTail(text, maxLength = 90) {
     const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
     if (!normalized) return '（空）';
@@ -37,11 +43,12 @@ function getFailureDiagnostic(text) {
     const hasOpen = /<tableEdit(?:\s|>)/i.test(value);
     const hasClose = /<\/tableEdit\s*>/i.test(value);
     const length = value.length;
+    const head = compactHead(value);
     const tail = compactTail(value);
-    if (hasOpen && !hasClose) return `tableEdit未闭合｜回复${length}字｜末尾：${tail}`;
-    if (!hasOpen && hasClose) return `仅出现tableEdit结束标签｜回复${length}字｜末尾：${tail}`;
-    if (!hasOpen && !hasClose) return `无tableEdit｜回复${length}字｜末尾：${tail}`;
-    return `tableEdit格式/内容未被识别｜回复${length}字｜末尾：${tail}`;
+    if (hasOpen && !hasClose) return `tableEdit未闭合｜回复${length}字｜开头：${head}｜末尾：${tail}`;
+    if (!hasOpen && hasClose) return `仅出现tableEdit结束标签｜回复${length}字｜开头：${head}`;
+    if (!hasOpen && !hasClose) return `无tableEdit｜回复${length}字｜开头：${head}｜末尾：${tail}`;
+    return `tableEdit格式/内容未被识别｜回复${length}字｜开头：${head}`;
 }
 
 function reinforceLatestUserMessage(chat) {
@@ -89,8 +96,6 @@ function ensureMemoPrompt(eventData) {
     }
 
     if (promptFound) {
-        // 同一请求内双重强化：用户本轮消息尾部 + 最后一条system指令。
-        // 这里只修改待发送prompt，不会产生第二次API调用，也不会改写聊天正文。
         reinforceLatestUserMessage(chat);
         if (!chat.some(message => String(message?.content ?? '').includes(FINAL_REMINDER_MARKER))) {
             chat.push({ role: 'system', content: FINAL_REMINDER });
@@ -116,8 +121,8 @@ function checkResponse(chatId) {
     const detail = getFailureDiagnostic(responseText);
     EDITOR.warning(
         promptState.fallbackInjected
-            ? `一次API诊断：已补入Memo提示，但模型仍未完成tableEdit阶段｜${detail}`
-            : `一次API诊断：提示已注入，但模型仍未完成tableEdit阶段｜${detail}`
+            ? `一次API诊断：已补入Memo提示，但模型仍未先输出tableEdit｜${detail}`
+            : `一次API诊断：提示已注入，但模型仍未先输出tableEdit｜${detail}`
     );
 }
 
@@ -126,4 +131,4 @@ APP.eventSource.on(promptEvent, ensureMemoPrompt);
 if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(promptEvent, ensureMemoPrompt);
 APP.eventSource.on(APP.event_types.CHARACTER_MESSAGE_RENDERED, checkResponse);
 
-console.log('[Memo] 严格一次API诊断已启用：同一请求双重强化tableEdit，失败只提示、不补记');
+console.log('[Memo] 严格一次API诊断已启用：tableEdit-first，失败只提示、不补记');
