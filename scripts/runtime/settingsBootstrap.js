@@ -3,15 +3,14 @@ import applicationFunctionManager from '../../services/appFuncManager.js';
 
 defaultSettings.table_cell_width_mode ??= 'wide1_2_cell';
 
-const STEP_PROMPT_MARKER = '[Memo七表独立记录v2]';
+const STEP_PROMPT_MARKER = '[Memo七表独立记录v3]';
 const STEP_BY_STEP_PROMPT = `[
-  { role: 'system', content: '${STEP_PROMPT_MARKER} 你是世界状态记忆维护器。只维护表格，不输出剧情正文。只依据已确认事实，不猜测未知。表4人物主表负责NPC身份识别；表5人物发展表负责最新发展锚点；表6历史事件表只保存重大既成节点。' },
-  { role: 'user', content: '<已有七表>\\n$0\\n</已有七表>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n逐表检查0→1→2→3→4→5→6。已有对象优先updateRow，新对象才insertRow，明确失效按规则deleteRow。表5字段“年龄”和“最后确认时间”必须分开：年龄是人物属性，最后确认时间是该发展锚点最后被剧情确认的世界时间；未知分别留空。只输出一个<tableEdit><!-- 函数调用 --></tableEdit>；若无变化输出<tableEdit><!-- NO_CHANGE --></tableEdit>。' }
+  { role: 'system', content: '${STEP_PROMPT_MARKER} 你是世界状态记忆维护器。只维护表格，不输出剧情正文。只依据已确认事实，不猜测未知。表4人物主表负责NPC身份识别；表5人物发展表负责最新发展锚点；表6历史事件表只保存重大既成节点。最终只输出一个完整<tableEdit>；无变化输出NO_CHANGE块。' },
+  { role: 'user', content: '<已有七表>\\n$0\\n</已有七表>\\n<最近上下文>\\n$1\\n</最近上下文>\\n<本轮内容>\\n$2\\n</本轮内容>\\n<操作规则>\\n$3\\n</操作规则>\\n<世界书参考>\\n$4\\n</世界书参考>\\n逐表检查0→1→2→3→4→5→6。已有对象优先updateRow，新对象才insertRow，明确失效按规则deleteRow。表5字段“年龄”和“最后确认时间”必须分开：年龄是人物属性，最后确认时间是该发展锚点最后被剧情确认的世界时间；未知分别留空。只输出一个<tableEdit><!-- 函数调用 --></tableEdit>；若无变化输出<tableEdit><!-- NO_CHANGE --></tableEdit>。' }
 ]`;
 
 defaultSettings.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
 
-// pluginSetting 仍可能来自旧持久化结构；在启动阶段把代码默认表5同步到正式8列。
 if (Array.isArray(defaultSettings.tableStructure)) {
     const dev = defaultSettings.tableStructure.find(item => item?.tableName === '人物发展表');
     if (dev) {
@@ -59,9 +58,9 @@ function needsStepPromptUpgrade(value) {
     const text = String(value || '').trim();
     if (!text) return true;
     if (text.includes(STEP_PROMPT_MARKER)) return false;
-    // 当前增量记录核心强制 JSON5.parse 后必须得到消息数组。
     if (!text.startsWith('[') || !text.includes('role') || !text.includes('content')) return true;
     if (!text.includes('$0') || !text.includes('$2') || !text.includes('$3')) return true;
+    if (!text.includes('$4')) return true;
     return text.includes('逐表检查0到5') || text.includes('六张表');
 }
 
@@ -74,7 +73,7 @@ try {
 
         if (needsStepPromptUpgrade(store.step_by_step_user_prompt)) {
             store.step_by_step_user_prompt = STEP_BY_STEP_PROMPT;
-            console.log('[Memo][settings] 已修复独立记录API的JSON5消息数组提示');
+            console.log('[Memo][settings] 已修复独立记录API的JSON5消息数组提示与世界书占位');
         }
 
         if (store.lastSelectedTemplate === 'rebuild_base' && isKnownOldMemoRebuildPrompt(store.rebuild_default_system_message_template, store.rebuild_default_message_template)) {
@@ -82,7 +81,6 @@ try {
             store.rebuild_default_message_template = REBUILD_USER_PROMPT;
         }
 
-        // 模式状态由独立记录开关管理；旧step_by_step常态不得持久为true。
         store.step_by_step = false;
         applicationFunctionManager.saveSettingsDebounced?.();
         console.log('[Memo][settings] 七表默认设置与独立记录协议已归一化');
