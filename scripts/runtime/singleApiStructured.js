@@ -2,7 +2,7 @@ import { APP, EDITOR, USER } from '../../core/manager.js';
 
 const PREF_KEY = 'independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME = 'memo_single_api_response';
-const HANDLED_FLAG = '__memoStructuredHandled';
+const handledMessages = new WeakMap();
 
 const MEMO_SCHEMA = {
     name: STRUCTURED_SCHEMA_NAME,
@@ -60,7 +60,6 @@ function normalizeTableEdit(raw) {
     let value = String(raw ?? '').trim();
     if (!value || /^NO_CHANGE$/i.test(value)) return 'NO_CHANGE';
 
-    // 兼容模型偶尔多包一层旧标签/注释；最终仍交给Memo原执行器。
     value = value
         .replace(/^\s*<tableEdit>\s*/i, '')
         .replace(/\s*<\/tableEdit>\s*$/i, '')
@@ -77,8 +76,7 @@ function buildLegacyCompatibleMessage(reply, tableEdit) {
         ? '<tableEdit><!-- NO_CHANGE --></tableEdit>'
         : `<tableEdit><!--\n${tableEdit}\n--></tableEdit>`;
 
-    // 恢复旧的自然顺序：正文/选项/留言在前，机器记录在最后。
-    // tableEdit内部只有HTML注释，SillyTavern界面不会显示机器操作。
+    // 恢复原来的自然顺序：正文/选项/留言在前，机器记录在最后。
     return `${visibleReply}\n\n${machineBlock}`.trim();
 }
 
@@ -96,15 +94,20 @@ async function injectStructuredSchema(generateData) {
         console.warn('[Memo][structured] 检测到其他JSON schema，将由Memo一次API结构覆盖以保证单次写表。', generateData.json_schema);
     }
 
-    generateData.json_schema = structuredClone(MEMO_SCHEMA);
-    console.log('[Memo][structured] 已向本次主API请求注入严格双字段JSON schema');
+    try {
+        generateData.json_schema = structuredClone(MEMO_SCHEMA);
+    } catch (_) {
+        generateData.json_schema = JSON.parse(JSON.stringify(MEMO_SCHEMA));
+    }
+    console.log('[Memo][structured] 已向本次主API请求注入双字段JSON schema');
 }
 
 async function unpackStructuredReply(chatId) {
     if (!singleApiActive()) return;
 
     const chat = USER?.getContext?.()?.chat?.[chatId];
-    if (!chat || chat.is_user || chat[HANDLED_FLAG]) return;
+    if (!chat || chat.is_user) return;
+    if (handledMessages.get(chat) === chat.mes) return;
 
     const payload = parseStructuredPayload(chat.mes);
     if (!payload || typeof payload !== 'object' || !('reply' in payload) || !('table_edit' in payload)) {
@@ -120,9 +123,9 @@ async function unpackStructuredReply(chatId) {
         return;
     }
 
-    chat[HANDLED_FLAG] = true;
     chat.mes = buildLegacyCompatibleMessage(reply, tableEdit);
     syncCurrentSwipe(chat);
+    handledMessages.set(chat, chat.mes);
 
     // CHARACTER_MESSAGE_RENDERED发生时原JSON已经绘制过；立即重绘为正常正文。
     try {
@@ -140,8 +143,10 @@ async function unpackStructuredReply(chatId) {
 }
 
 const settingsEvent = APP.event_types.CHAT_COMPLETION_SETTINGS_READY;
-APP.eventSource.on(settingsEvent, injectStructuredSchema);
-if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(settingsEvent, injectStructuredSchema);
+if (settingsEvent) {
+    APP.eventSource.on(settingsEvent, injectStructuredSchema);
+    if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(settingsEvent, injectStructuredSchema);
+}
 
 const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, unpackStructuredReply);
