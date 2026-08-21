@@ -1,6 +1,6 @@
 import './index.js';
 
-const RUNTIME_VERSION = 'memo71';
+const RUNTIME_VERSION = 'memo72';
 
 async function loadOptional(label, path) {
     try {
@@ -37,4 +37,4 @@ for (const [label, path] of modules) {
     await loadOptional(label, path);
 }
 
-console.log('[Memo][loader] memo71 隔离式运行时加载完成');
+console.log('[Memo][loader] memo72 隔离式运行时加载完成');
