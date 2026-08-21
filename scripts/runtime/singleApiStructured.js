@@ -47,6 +47,11 @@ function isChatReplyGeneration(type, dryRun = false) {
     return value !== 'quiet' && value !== 'impersonate';
 }
 
+function isAppendGeneration(type) {
+    const value = String(type ?? '').toLowerCase();
+    return value === 'continue' || value === 'append' || value === 'appendfinal';
+}
+
 function currentLastAssistant() {
     const chat = USER?.getContext?.()?.chat;
     if (!Array.isArray(chat) || !chat.length) return null;
@@ -195,7 +200,10 @@ async function unpackStructuredReply(chatId) {
     let basePrefix = '';
     let structuredRaw = currentMes;
 
-    if (pending.baseChat === chat && pending.baseMes && currentMes.startsWith(pending.baseMes)) {
+    if (isAppendGeneration(pending.generationType)
+        && pending.baseChat === chat
+        && pending.baseMes
+        && currentMes.startsWith(pending.baseMes)) {
         basePrefix = pending.baseMes;
         structuredRaw = currentMes.slice(pending.baseMes.length).trim();
     }
@@ -223,7 +231,6 @@ async function unpackStructuredReply(chatId) {
     syncCurrentSwipe(chat);
     handledMessages.set(chat, chat.mes);
 
-    // Continue在同一消息上追加：只执行本轮新操作，禁止原parser从更早状态重放旧tableEdit。
     if (basePrefix) {
         let handledDirectly = tableEdit === 'NO_CHANGE';
         if (!handledDirectly) {
