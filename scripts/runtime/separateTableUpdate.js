@@ -4,8 +4,8 @@ import { reloadCurrentChat } from '/script.js';
 import { getTableEditTag, getTablePrompt, getTablePromptByPiece } from '../../index.js';
 import { handleCustomAPIRequest, handleMainAPIRequest } from '../settings/standaloneAPI.js';
 import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
-import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo86';
-import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo86';
+import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js?v=memo87';
+import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo87';
 import JSON5 from '../../utils/json5.min.mjs';
 
 const INDEPENDENT_OPERATION_RULES = `# Memo独立记录操作协议

@@ -16,9 +16,8 @@ const STRUCTURED_OUTPUT_RULE = '- 一次API模式使用结构化双字段响应�
 
 const SINGLE_API_PROTOCOL = `
 ${PROTOCOL_START}
-# 一次API结构化双通道协议
-- 本轮只有一次模型/API请求。最终content必须只包含一个合法JSON对象，JSON之外不得输出任何正文、Markdown代码围栏或解释；即使API端忽略结构化参数也必须遵守。
-- JSON固定为 {"table_edit":"NO_CHANGE 或 Memo 操作代码","reply":"给用户看的完整正常回复"}，两个字段均为必填字符串，内部引号、反斜杠和换行必须正确转义。
+# 一次API双通道协议
+- 本轮只有一次模型/API请求。API层会在请求末尾指定本轮使用JSON结构或tableEdit标签；必须严格遵守最后出现的传输格式，不能自行省略机器字段。
 - table_edit：只写本轮七张表需要执行的 insertRow / updateRow / deleteRow 代码；不要包<tableEdit>、不要Markdown、不要解释。没有任何变化时准确填写 NO_CHANGE。
 - reply：只写用户真正应该看到的完整正常回复，严格保持角色卡/世界书要求的风格和自然结构；正文、参考行动/选项、伊依留言等均写在reply内部。
 - reply中禁止出现Memo、tableEdit、JSON结构说明、表格操作代码或“正在记录”等机器层内容。
