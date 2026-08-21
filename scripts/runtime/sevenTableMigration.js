@@ -66,9 +66,7 @@ function syncGlobalTemplates() {
     const rawTemplates = Array.isArray(root.table_database_templates) ? root.table_database_templates : [];
     const names = rawTemplates.map(templateName);
     const canonicalPrefix = STANDARD_NAMES.every((name, i) => names[i] === name);
-    const hasLegacyStandard = names.some(name => STANDARD_OR_LEGACY_NAMES.has(name));
     if (canonicalPrefix && !names.includes(LEGACY_PERSON_NAME)) return false;
-    if (!hasLegacyStandard && rawTemplates.length > 0) return false; // 全自定义模板不强改。
 
     const customRaw = rawTemplates.filter((raw, i) => !STANDARD_OR_LEGACY_NAMES.has(names[i]));
     root.table_database_templates = [];
@@ -151,20 +149,21 @@ function ensureCanonicalSheet(existingSheets, name, rows, piece) {
 function migrateCurrentChatSheets() {
     const { piece } = USER.getChatPiece() || {};
     if (!piece) return false;
-    const sheets = BASE.getChatSheets();
+    let sheets = BASE.getChatSheets();
     if (!sheets.length) return false;
 
     const legacy = sheets.find(sheet => sheet?.name === LEGACY_PERSON_NAME);
-    let main = sheets.find(sheet => sheet?.name === '人物主表');
-    let dev = sheets.find(sheet => sheet?.name === '人物发展表');
+    const projectedMain = legacy ? projectLegacyPerson(legacy, MAIN_COLUMNS) : [];
+    const projectedDev = legacy ? projectLegacyPerson(legacy, DEV_COLUMNS) : [];
     let changed = false;
 
-    if (legacy) {
-        if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', projectLegacyPerson(legacy, MAIN_COLUMNS), piece); changed = !!main || changed; }
-        if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', projectLegacyPerson(legacy, DEV_COLUMNS), piece); changed = !!dev || changed; }
-    } else {
-        if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', [], piece); changed = !!main || changed; }
-        if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', [], piece); changed = !!dev || changed; }
+    // 逐张补齐七张标准表。人物两表从旧14列人物表按字段名迁移；其余缺表以空表补齐。
+    for (const name of STANDARD_NAMES) {
+        sheets = BASE.getChatSheets();
+        if (sheets.some(sheet => sheet?.name === name)) continue;
+        const seedRows = name === '人物主表' ? projectedMain : name === '人物发展表' ? projectedDev : [];
+        const created = ensureCanonicalSheet(sheets, name, seedRows, piece);
+        changed = !!created || changed;
     }
 
     const refreshed = BASE.getChatSheets();
@@ -186,7 +185,7 @@ function migrateCurrentChatSheets() {
         USER.saveChat();
         BASE.refreshContextView?.();
         BASE.refreshTempView?.(true);
-        console.log('[Memo] 六表→七表迁移完成：人物主表/人物发展表已拆分，历史事件表移动到#6');
+        console.log('[Memo] 世界状态表已统一为七表：人物主表/人物发展表分离，历史事件表为#6');
         return true;
     }
     return false;
