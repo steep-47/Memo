@@ -6,6 +6,7 @@ import './scripts/runtime/singleApiPromptRestore.js?v=memo56';
 import './scripts/runtime/singleApiFinish.js?v=memo46';
 import './scripts/runtime/singleApiDiagnostic.js?v=memo53';
 import './scripts/runtime/stableTableCleanup.js?v=memo61';
+import './scripts/runtime/cleanupButtonBridge.js?v=memo62';
 import './scripts/ui/pinchZoom.js?v=memo46';
 import './scripts/ui/personTableSplit.js?v=memo56';
 import './scripts/ui/apiModeToggle.js?v=memo46';
