@@ -4,25 +4,32 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 const PREF_KEY = 'independent_record_api_enabled';
 const PROTOCOL_START = '[一次API固定收尾协议]';
 const PROTOCOL_END = '[/一次API固定收尾协议]';
-const LEGACY_OUTPUT_RULE = '- 正文后仅在确有表格操作时输出<tableEdit><!-- 函数调用 --></tableEdit>。所有必要表格操作放在同一个<tableEdit>中。';
-const OLD_UNIFIED_OUTPUT_RULE = '- 正文后必须以一个完整<tableEdit>结束：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。';
-const OLD_MIDDLE_OUTPUT_RULE = '- 剧情/回答主体写完后，先立即输出一个完整<tableEdit>：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。随后再写参考行动、选项、伊依留言等回复尾部内容。';
-const TABLE_FIRST_OUTPUT_RULE = '- 最终回复必须先输出恰好一个完整<tableEdit>机器记录，再开始剧情/回答正文；有表格变化时写入所有必要的insertRow/updateRow/deleteRow，没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。tableEdit之后再正常写正文、参考行动、选项和留言。';
 
-const SINGLE_API_END_PROTOCOL = `
+const KNOWN_OLD_OUTPUT_RULES = [
+    '- 正文后仅在确有表格操作时输出<tableEdit><!-- 函数调用 --></tableEdit>。所有必要表格操作放在同一个<tableEdit>中。',
+    '- 正文后必须以一个完整<tableEdit>结束：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。',
+    '- 剧情/回答主体写完后，先立即输出一个完整<tableEdit>：有表格变化时写入所有必要的insertRow/updateRow/deleteRow；没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。随后再写参考行动、选项、伊依留言等回复尾部内容。',
+    '- 最终回复必须先输出恰好一个完整<tableEdit>机器记录，再开始剧情/回答正文；有表格变化时写入所有必要的insertRow/updateRow/deleteRow，没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。tableEdit之后再正常写正文、参考行动、选项和留言。',
+];
+
+const STRUCTURED_OUTPUT_RULE = '- 一次API模式使用结构化双字段响应：table_edit只填写必要的insertRow/updateRow/deleteRow操作代码，无变化填写NO_CHANGE；reply只填写给用户看的正常完整回复。reply保持角色原有自然顺序（正文→参考行动/选项→留言等），不得出现<tableEdit>、JSON说明或机器记录。';
+
+const SINGLE_API_PROTOCOL = `
 ${PROTOCOL_START}
-# 本轮回复硬性表格协议（tableEdit-first）
-- 在输出任何剧情、回答、标题、状态栏、选项、留言、<details>、<summary>之前，第一段必须先输出恰好一个完整 <tableEdit>...</tableEdit>。
-- 固定顺序：<tableEdit>...</tableEdit> → 剧情/回答主体 → 参考行动/选项 → 伊依留言或其他尾部内容 → 正常结束。
-- tableEdit 是本轮机器记录阶段，必须在长正文开始前完成；禁止把它推迟到正文中段或结尾。
-- 有表格变化：所有 insertRow / updateRow / deleteRow 必须放在同一个 HTML 注释中，并整体包在 <tableEdit> 内，固定格式为 <tableEdit><!-- 操作代码 --></tableEdit>。
-- 没有任何需要记录的变化：第一段仍必须输出 <tableEdit><!-- NO_CHANGE --></tableEdit>。
-- tableEdit 必须真实出现在最终回复文本中，不能只在思考/推理中处理，不能用自然语言替代。
-- 输出 tableEdit 后，再按角色设定正常完成正文；机器记录块不应改变正文风格或剧情内容。
-- 表4人物主表与表5人物发展表必须按同一NPC对应维护；已有对象优先 update，禁止重复 insert。
+# 一次API结构化双通道协议
+- 本轮只有一次模型/API请求。API层会强制最终响应包含两个字段：table_edit 与 reply。
+- table_edit：只写本轮七张表需要执行的 insertRow / updateRow / deleteRow 代码；不要包<tableEdit>、不要Markdown、不要解释。没有任何变化时准确填写 NO_CHANGE。
+- reply：只写用户真正应该看到的完整正常回复，严格保持角色卡/世界书要求的风格和自然结构；正文、参考行动/选项、伊依留言等均写在reply内部。
+- reply中禁止出现Memo、tableEdit、JSON结构说明、表格操作代码或“正在记录”等机器层内容。
+- 表4人物主表与表5人物发展表继续通过同一NPC姓名关联；已有对象优先update，禁止重复insert。
+- 年龄与最后确认时间是表5两个独立字段，不得混写。
+- 不要把机器操作只写进思考/reasoning；最终结构中的table_edit字段必须实际给出操作或NO_CHANGE。
 ${PROTOCOL_END}`;
 
-function independentEnabled() { return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true; }
+function independentEnabled() {
+    return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY] === true;
+}
+
 function removeOwnProtocol(text) {
     const value = String(text || '');
     const start = value.indexOf(PROTOCOL_START);
@@ -31,40 +38,59 @@ function removeOwnProtocol(text) {
     if (end < 0) return value.slice(0, start).trimEnd();
     return `${value.slice(0, start)}${value.slice(end + PROTOCOL_END.length)}`.trimEnd();
 }
+
 function normalizeOutputRule(text) {
     let value = String(text || '');
-    for (const oldRule of [LEGACY_OUTPUT_RULE, OLD_UNIFIED_OUTPUT_RULE, OLD_MIDDLE_OUTPUT_RULE]) {
-        if (value.includes(oldRule)) value = value.replace(oldRule, TABLE_FIRST_OUTPUT_RULE);
+    for (const oldRule of KNOWN_OLD_OUTPUT_RULES) {
+        if (value.includes(oldRule)) value = value.replace(oldRule, STRUCTURED_OUTPUT_RULE);
+    }
+    if (!value.includes(STRUCTURED_OUTPUT_RULE)) {
+        const outputHeading = '# 输出';
+        if (value.includes(outputHeading)) value = value.replace(outputHeading, `${outputHeading}\n${STRUCTURED_OUTPUT_RULE}`);
+        else value = `${value.trim()}\n${STRUCTURED_OUTPUT_RULE}`.trim();
     }
     return value;
 }
+
 function isMemo38Replacement(text) {
     const value = String(text || '');
     return value.includes('# Memo 本轮任务') && value.includes('# 硬性结束协议') && value.includes('# 世界状态记忆表');
 }
+
 function buildSingleApiTemplate(currentTemplate) {
     let base = String(currentTemplate || '').trim();
     if (!base || isMemo38Replacement(base)) base = String(defaultSettings?.message_template || '').trim();
     base = normalizeOutputRule(removeOwnProtocol(base));
-    return `${base}\n\n${SINGLE_API_END_PROTOCOL.trim()}`.trim();
+    return `${base}\n\n${SINGLE_API_PROTOCOL.trim()}`.trim();
 }
+
 function restoreSingleApiPrompt() {
     if (independentEnabled()) return;
     const settings = USER?.getSettings?.();
     if (!settings) return;
     if (!settings.muyoo_dataTable || typeof settings.muyoo_dataTable !== 'object') settings.muyoo_dataTable = {};
+
     const current = settings.muyoo_dataTable.message_template;
     const next = buildSingleApiTemplate(current);
     if (current !== next) {
         settings.muyoo_dataTable.message_template = next;
         USER.saveSettings?.();
-        console.log('[Memo] 一次API：七表tableEdit-first协议已统一');
+        console.log('[Memo] 一次API：已恢复正文自然顺序并切换结构化双通道协议');
     }
 }
+
+// 同步代码默认对象，避免新会话/设置重建再次拿到memo73的tableEdit-first规则。
+try {
+    defaultSettings.message_template = buildSingleApiTemplate(defaultSettings.message_template);
+} catch (error) {
+    console.warn('[Memo] 默认一次API结构化协议归一失败', error);
+}
+
 restoreSingleApiPrompt();
 queueMicrotask(restoreSingleApiPrompt);
 setTimeout(restoreSingleApiPrompt, 250);
 const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
 APP.eventSource.on(promptEvent, restoreSingleApiPrompt);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(promptEvent, restoreSingleApiPrompt);
-console.log('[Memo] 一次API 七表tableEdit-first记录协议已加载');
+
+console.log('[Memo] 一次API结构化提示协议已加载；可见回复恢复自然顺序');
