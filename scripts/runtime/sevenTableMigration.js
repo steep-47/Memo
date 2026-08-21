@@ -13,9 +13,7 @@ function clone(v) {
     try { return structuredClone(v); } catch (_) { return JSON.parse(JSON.stringify(v)); }
 }
 
-function canonicalStructures() {
-    return defaultSettings.tableStructure.map(item => clone(item));
-}
+function canonicalStructures() { return defaultSettings.tableStructure.map(item => clone(item)); }
 
 function normalizeSettingsStructure(settings = USER.tableBaseSetting) {
     const existing = Array.isArray(settings.tableStructure) ? settings.tableStructure : [];
@@ -47,17 +45,14 @@ function mapRow(headers, row) {
 
 function projectLegacyPerson(sheet, columns) {
     const { headers, rows } = valueRows(sheet);
-    return rows
-        .map(row => {
-            const m = mapRow(headers, row);
-            return columns.map(col => m.get(col) ?? '');
-        })
-        .filter(row => norm(row[0]));
+    return rows.map(row => {
+        const m = mapRow(headers, row);
+        return columns.map(col => m.get(col) ?? '');
+    }).filter(row => norm(row[0]));
 }
 
-function createSheetFromStructure(structure, rows = []) {
-    const cols = structure.columns.length + 1;
-    const newSheet = BASE.createChatSheet(cols, Math.max(1, rows.length + 1));
+function createSheetFromStructure(structure, rows = [], piece = null) {
+    const newSheet = BASE.createChatSheet(structure.columns.length + 1, Math.max(1, rows.length + 1));
     newSheet.name = structure.tableName;
     newSheet.domain = SheetBase.SheetDomain.chat;
     newSheet.type = SheetBase.SheetType.dynamic;
@@ -67,8 +62,7 @@ function createSheetFromStructure(structure, rows = []) {
     newSheet.sendToContext = true;
     newSheet.triggerSend = false;
     newSheet.triggerSendDeep = 1;
-    const valueSheet = [['', ...structure.columns], ...rows.map(row => ['', ...row])];
-    newSheet.rebuildHashSheetByValueSheet(valueSheet);
+    newSheet.rebuildHashSheetByValueSheet([['', ...structure.columns], ...rows.map(row => ['', ...row])]);
     if (newSheet.data) {
         newSheet.data.note = structure.note || '';
         newSheet.data.initNode = structure.initNode || '';
@@ -77,14 +71,16 @@ function createSheetFromStructure(structure, rows = []) {
         newSheet.data.deleteNode = structure.deleteNode || '';
         newSheet.data.description = [structure.note, structure.initNode, structure.insertNode, structure.updateNode, structure.deleteNode].filter(Boolean).join('\n');
     }
+    // createChatSheet只放入实例缓存；save后才正式加入context元数据。
+    if (piece) newSheet.save(piece, true);
     return newSheet;
 }
 
-function ensureCanonicalSheet(existingSheets, name, rows = []) {
+function ensureCanonicalSheet(existingSheets, name, rows, piece) {
     const found = existingSheets.find(sheet => sheet?.name === name);
     if (found) return found;
     const structure = USER.tableBaseSetting.tableStructure.find(item => item.tableName === name);
-    return structure ? createSheetFromStructure(structure, rows) : null;
+    return structure ? createSheetFromStructure(structure, rows, piece) : null;
 }
 
 function migrateCurrentChatSheets() {
@@ -100,16 +96,16 @@ function migrateCurrentChatSheets() {
 
     if (legacy) {
         if (!main) {
-            main = ensureCanonicalSheet(sheets, '人物主表', projectLegacyPerson(legacy, MAIN_COLUMNS));
+            main = ensureCanonicalSheet(sheets, '人物主表', projectLegacyPerson(legacy, MAIN_COLUMNS), piece);
             changed = !!main || changed;
         }
         if (!dev) {
-            dev = ensureCanonicalSheet(sheets, '人物发展表', projectLegacyPerson(legacy, DEV_COLUMNS));
+            dev = ensureCanonicalSheet(sheets, '人物发展表', projectLegacyPerson(legacy, DEV_COLUMNS), piece);
             changed = !!dev || changed;
         }
     } else {
-        if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', []); changed = !!main || changed; }
-        if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', []); changed = !!dev || changed; }
+        if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', [], piece); changed = !!main || changed; }
+        if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', [], piece); changed = !!dev || changed; }
     }
 
     const refreshed = BASE.getChatSheets();
@@ -119,9 +115,11 @@ function migrateCurrentChatSheets() {
     const custom = refreshed.filter(sheet => sheet && !canonicalSet.has(sheet.name) && sheet.name !== LEGACY_PERSON_NAME);
     const ordered = [...canonical, ...custom];
 
-    const currentEnabledNames = refreshed.filter(s => s?.enable).map(s => s.name);
-    const targetEnabledNames = canonical.filter(s => s?.enable).map(s => s.name);
-    const needsReorder = targetEnabledNames.some((name, i) => currentEnabledNames[i] !== name) || !!legacy;
+    const currentEnabledNames = refreshed.filter(s => s?.enable && s?.name !== LEGACY_PERSON_NAME).map(s => s.name);
+    const targetEnabledNames = ordered.filter(s => s?.enable).map(s => s.name);
+    const needsReorder = currentEnabledNames.length !== targetEnabledNames.length
+        || targetEnabledNames.some((name, i) => currentEnabledNames[i] !== name)
+        || !!legacy;
 
     if (changed || needsReorder) {
         BASE.reSaveAllChatSheets(ordered);
@@ -142,11 +140,4 @@ function ensureSevenTableWorld() {
     return settingsChanged || dataChanged;
 }
 
-export {
-    STANDARD_NAMES,
-    MAIN_COLUMNS,
-    DEV_COLUMNS,
-    normalizeSettingsStructure,
-    migrateCurrentChatSheets,
-    ensureSevenTableWorld,
-};
+export { STANDARD_NAMES, MAIN_COLUMNS, DEV_COLUMNS, normalizeSettingsStructure, migrateCurrentChatSheets, ensureSevenTableWorld };
