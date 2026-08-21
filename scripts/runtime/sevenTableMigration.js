@@ -4,6 +4,7 @@ import { defaultSettings } from '../../data/pluginSetting.js';
 
 const STANDARD_NAMES = ['当前状态表','角色状态表','背包表','当前任务与约定表','人物主表','人物发展表','历史事件表'];
 const LEGACY_PERSON_NAME = '人物表';
+const STANDARD_OR_LEGACY_NAMES = new Set([...STANDARD_NAMES, LEGACY_PERSON_NAME]);
 const MAIN_COLUMNS = ['姓名','性别','别名/称呼','身份/所属','外貌特征','性格','与玩家关系','重要信息'];
 const DEV_COLUMNS = ['姓名','修为','主要能力','当前地点','年龄/最后确认时间','当前状态','主要目标/重要事项'];
 
@@ -12,18 +13,83 @@ function clone(v) {
     if (v === null || typeof v !== 'object') return v;
     try { return structuredClone(v); } catch (_) { return JSON.parse(JSON.stringify(v)); }
 }
-
 function canonicalStructures() { return defaultSettings.tableStructure.map(item => clone(item)); }
 
 function normalizeSettingsStructure(settings = USER.tableBaseSetting) {
     const existing = Array.isArray(settings.tableStructure) ? settings.tableStructure : [];
-    const standardOrLegacy = new Set([...STANDARD_NAMES, LEGACY_PERSON_NAME]);
-    const custom = existing.filter(item => item && !standardOrLegacy.has(item.tableName));
+    const custom = existing.filter(item => item && !STANDARD_OR_LEGACY_NAMES.has(item.tableName));
     const next = canonicalStructures();
     custom.forEach((item, offset) => next.push({ ...clone(item), tableIndex: 7 + offset }));
     const same = JSON.stringify(existing) === JSON.stringify(next);
     if (!same) settings.tableStructure = next;
     return !same;
+}
+
+function templateName(raw) {
+    try {
+        if (!raw?.uid) return norm(raw?.name || raw?.source?.name);
+        return norm(new BASE.SheetTemplate(raw.uid).name);
+    } catch (_) {
+        return norm(raw?.name || raw?.source?.name);
+    }
+}
+
+function createGlobalTemplate(structure) {
+    const t = new BASE.SheetTemplate();
+    t.domain = 'global';
+    t.createNewTemplate(structure.columns.length + 1, 1, false);
+    t.name = structure.tableName;
+    structure.columns.forEach((column, index) => {
+        const cell = t.findCellByPosition(0, index + 1);
+        if (cell) cell.data.value = column;
+    });
+    t.enable = structure.enable !== false;
+    t.tochat = structure.tochat ?? structure.toChat ?? true;
+    t.required = structure.Required === true;
+    t.triggerSend = structure.triggerSend;
+    t.triggerSendDeep = structure.triggerSendDeep;
+    if (structure.config) t.config = clone(structure.config);
+    if (t.source?.data) {
+        t.source.data.note = structure.note || '';
+        t.source.data.initNode = structure.initNode || '';
+        t.source.data.deleteNode = structure.deleteNode || '';
+        t.source.data.updateNode = structure.updateNode || '';
+        t.source.data.insertNode = structure.insertNode || '';
+    }
+    t.save();
+    return t;
+}
+
+function syncGlobalTemplates() {
+    const root = USER.getSettings();
+    if (!root) return false;
+    const rawTemplates = Array.isArray(root.table_database_templates) ? root.table_database_templates : [];
+    const names = rawTemplates.map(templateName);
+    const canonicalPrefix = STANDARD_NAMES.every((name, i) => names[i] === name);
+    const hasLegacyStandard = names.some(name => STANDARD_OR_LEGACY_NAMES.has(name));
+    if (canonicalPrefix && !names.includes(LEGACY_PERSON_NAME)) return false;
+    if (!hasLegacyStandard && rawTemplates.length > 0) return false; // 全自定义模板不强改。
+
+    const customRaw = rawTemplates.filter((raw, i) => !STANDARD_OR_LEGACY_NAMES.has(names[i]));
+    root.table_database_templates = [];
+    root.table_selected_sheets = [];
+
+    canonicalStructures().forEach(structure => {
+        const t = createGlobalTemplate(structure);
+        if (t.enable !== false) root.table_selected_sheets.push(t.uid);
+    });
+
+    // 用户额外自定义模板保留在七张标准表之后。
+    for (const raw of customRaw) {
+        root.table_database_templates.push(raw);
+        try {
+            const t = raw?.uid ? new BASE.SheetTemplate(raw.uid) : null;
+            if (t?.enable !== false && raw?.uid) root.table_selected_sheets.push(raw.uid);
+        } catch (_) {}
+    }
+    USER.saveSettings?.();
+    console.log('[Memo] 全局模板已同步为七表结构，自定义附加模板已保留');
+    return true;
 }
 
 function valueRows(sheet) {
@@ -58,7 +124,7 @@ function createSheetFromStructure(structure, rows = [], piece = null) {
     newSheet.type = SheetBase.SheetType.dynamic;
     newSheet.enable = structure.enable !== false;
     newSheet.required = structure.Required === true;
-    newSheet.tochat = structure.toChat !== false;
+    newSheet.tochat = structure.tochat ?? structure.toChat ?? true;
     newSheet.sendToContext = true;
     newSheet.triggerSend = false;
     newSheet.triggerSendDeep = 1;
@@ -71,7 +137,6 @@ function createSheetFromStructure(structure, rows = [], piece = null) {
         newSheet.data.deleteNode = structure.deleteNode || '';
         newSheet.data.description = [structure.note, structure.initNode, structure.insertNode, structure.updateNode, structure.deleteNode].filter(Boolean).join('\n');
     }
-    // createChatSheet只放入实例缓存；save后才正式加入context元数据。
     if (piece) newSheet.save(piece, true);
     return newSheet;
 }
@@ -95,14 +160,8 @@ function migrateCurrentChatSheets() {
     let changed = false;
 
     if (legacy) {
-        if (!main) {
-            main = ensureCanonicalSheet(sheets, '人物主表', projectLegacyPerson(legacy, MAIN_COLUMNS), piece);
-            changed = !!main || changed;
-        }
-        if (!dev) {
-            dev = ensureCanonicalSheet(sheets, '人物发展表', projectLegacyPerson(legacy, DEV_COLUMNS), piece);
-            changed = !!dev || changed;
-        }
+        if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', projectLegacyPerson(legacy, MAIN_COLUMNS), piece); changed = !!main || changed; }
+        if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', projectLegacyPerson(legacy, DEV_COLUMNS), piece); changed = !!dev || changed; }
     } else {
         if (!main) { main = ensureCanonicalSheet(sheets, '人物主表', [], piece); changed = !!main || changed; }
         if (!dev) { dev = ensureCanonicalSheet(sheets, '人物发展表', [], piece); changed = !!dev || changed; }
@@ -135,9 +194,10 @@ function migrateCurrentChatSheets() {
 
 function ensureSevenTableWorld() {
     const settingsChanged = normalizeSettingsStructure();
+    const templatesChanged = syncGlobalTemplates();
     const dataChanged = migrateCurrentChatSheets();
     if (settingsChanged) USER.saveSettings?.();
-    return settingsChanged || dataChanged;
+    return settingsChanged || templatesChanged || dataChanged;
 }
 
-export { STANDARD_NAMES, MAIN_COLUMNS, DEV_COLUMNS, normalizeSettingsStructure, migrateCurrentChatSheets, ensureSevenTableWorld };
+export { STANDARD_NAMES, MAIN_COLUMNS, DEV_COLUMNS, normalizeSettingsStructure, syncGlobalTemplates, migrateCurrentChatSheets, ensureSevenTableWorld };
