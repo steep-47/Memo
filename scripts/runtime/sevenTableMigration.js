@@ -33,18 +33,14 @@ function templateName(raw) {
         return norm(raw?.name || raw?.source?.name);
     }
 }
-
 function templateColumns(raw) {
     try {
         if (!raw?.uid) return [];
         const t = new BASE.SheetTemplate(raw.uid);
         const row = Array.isArray(t.hashSheet?.[0]) ? t.hashSheet[0] : [];
         return row.slice(1).map(cellUid => norm(t.cells?.get?.(cellUid)?.data?.value));
-    } catch (_) {
-        return [];
-    }
+    } catch (_) { return []; }
 }
-
 function createGlobalTemplate(structure) {
     const t = new BASE.SheetTemplate();
     t.domain = 'global';
@@ -70,7 +66,6 @@ function createGlobalTemplate(structure) {
     t.save();
     return t;
 }
-
 function syncGlobalTemplates() {
     const root = USER.getSettings();
     if (!root) return false;
@@ -79,20 +74,17 @@ function syncGlobalTemplates() {
     const canonicalDefs = canonicalStructures();
     const canonicalValid = STANDARD_NAMES.every((name, i) => {
         if (names[i] !== name) return false;
-        const actual = templateColumns(rawTemplates[i]);
-        return JSON.stringify(actual) === JSON.stringify(canonicalDefs[i]?.columns || []);
+        return JSON.stringify(templateColumns(rawTemplates[i])) === JSON.stringify(canonicalDefs[i]?.columns || []);
     });
     if (canonicalValid && !names.includes(LEGACY_PERSON_NAME)) return false;
 
     const customRaw = rawTemplates.filter((raw, i) => !STANDARD_OR_LEGACY_NAMES.has(names[i]));
     root.table_database_templates = [];
     root.table_selected_sheets = [];
-
     canonicalDefs.forEach(structure => {
         const t = createGlobalTemplate(structure);
         if (t.enable !== false) root.table_selected_sheets.push(t.uid);
     });
-
     for (const raw of customRaw) {
         root.table_database_templates.push(raw);
         try {
@@ -115,19 +107,53 @@ function valueRows(sheet) {
     });
     return { headers, rows };
 }
-
 function mapRow(headers, row) {
     const m = new Map();
     headers.forEach((h, i) => { if (h && (!m.has(h) || !norm(m.get(h)))) m.set(h, row?.[i] ?? ''); });
     return m;
 }
-
 function projectLegacyPerson(sheet, columns) {
     const { headers, rows } = valueRows(sheet);
     return rows.map(row => {
         const m = mapRow(headers, row);
         return columns.map(col => m.get(col) ?? '');
     }).filter(row => norm(row[0]));
+}
+
+function mergeProjectedRows(sheet, columns, projectedRows, piece) {
+    if (!sheet || !projectedRows.length) return false;
+    const { headers, rows } = valueRows(sheet);
+    const currentColumns = headers.length ? headers : columns;
+    const normalizedRows = rows.map(row => {
+        const m = mapRow(currentColumns, row);
+        return columns.map(col => m.get(col) ?? '');
+    });
+    let changed = false;
+
+    for (const incoming of projectedRows) {
+        const name = norm(incoming[0]);
+        if (!name) continue;
+        const candidates = normalizedRows.map((row, index) => ({ row, index })).filter(item => norm(item.row[0]) === name);
+        if (candidates.length === 0) {
+            normalizedRows.push([...incoming]);
+            changed = true;
+            continue;
+        }
+        if (candidates.length !== 1) continue; // 同名多行不猜。
+        const target = candidates[0].row;
+        for (let i = 1; i < columns.length; i++) {
+            if (!norm(target[i]) && norm(incoming[i])) {
+                target[i] = incoming[i];
+                changed = true;
+            }
+        }
+    }
+
+    if (changed) {
+        sheet.rebuildHashSheetByValueSheet([['', ...columns], ...normalizedRows.map(row => ['', ...row])]);
+        if (piece) sheet.save(piece, true);
+    }
+    return changed;
 }
 
 function createSheetFromStructure(structure, rows = [], piece = null) {
@@ -153,7 +179,6 @@ function createSheetFromStructure(structure, rows = [], piece = null) {
     if (piece) newSheet.save(piece, true);
     return newSheet;
 }
-
 function ensureCanonicalSheet(existingSheets, name, rows, piece) {
     const found = existingSheets.find(sheet => sheet?.name === name);
     if (found) return found;
@@ -178,6 +203,13 @@ function migrateCurrentChatSheets() {
         const seedRows = name === '人物主表' ? projectedMain : name === '人物发展表' ? projectedDev : [];
         const created = ensureCanonicalSheet(sheets, name, seedRows, piece);
         changed = !!created || changed;
+    }
+
+    // 半迁移兜底：若新人物表已存在但旧人物表仍在，按姓名唯一匹配，只补空字段/缺失人物，不覆盖新值。
+    if (legacy) {
+        const current = BASE.getChatSheets();
+        changed = mergeProjectedRows(current.find(s => s?.name === '人物主表'), MAIN_COLUMNS, projectedMain, piece) || changed;
+        changed = mergeProjectedRows(current.find(s => s?.name === '人物发展表'), DEV_COLUMNS, projectedDev, piece) || changed;
     }
 
     const refreshed = BASE.getChatSheets();
