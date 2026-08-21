@@ -25,6 +25,7 @@ deleteRow(tableIndex:number,rowIndex:number)
 # 总原则
 - 七张表维护当前事实状态，不是关键词出现日志。生成本轮回复前先按0→1→2→3→4→5→6逐表检查应记录的明确事实。
 - 写入前必须先检查现有行：首次确认/真正新增用insert；已有事实变化用update；明确消失/结束用delete；只是查看、复述、再次提及且事实未变则不操作。
+- updateRow只能使用当前表中真实存在的rowIndex；行不存在时不得把update当成insert，真正新增必须明确使用insertRow。
 - 同一对象已有记录时优先update，禁止因再次提及而重复insert。名称或称呼略有变化但上下文明显是同一对象时仍视为同一条记录。
 - 不猜测未知；未知信息留空。
 # NPC长期发展锚点
@@ -43,7 +44,7 @@ deleteRow(tableIndex:number,rowIndex:number)
 - 一次性物品使用、消耗、出售、交付、丢失或被夺走后按实际剩余数量update；数量归零或明确完全不再持有时delete。
 - 可重复使用的武器、装备、工具、容器使用后仍归玩家所有，不因“使用”删除；装备/卸下/损坏/装满/清空等只更新状态。
 # 输出
-- 最终回复必须先输出恰好一个完整<tableEdit>机器记录，再开始剧情/回答正文；有表格变化时写入所有必要的insertRow/updateRow/deleteRow，没有任何需要记录的变化时输出<tableEdit><!-- NO_CHANGE --></tableEdit>。tableEdit之后再正常写正文、参考行动、选项和留言。`,
+- 一次API模式使用结构化双字段响应：table_edit只填写必要的insertRow/updateRow/deleteRow操作代码，无变化填写NO_CHANGE；reply只填写给用户看的正常完整回复。reply保持角色原有自然顺序（正文→参考行动/选项→留言等），不得出现<tableEdit>、JSON说明或机器记录。`,
     isTableToChat: false,
     show_settings_in_extension_menu: true,
     alternate_switch: true,
