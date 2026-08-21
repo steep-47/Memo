@@ -1,6 +1,6 @@
 import './index.js';
 
-const RUNTIME_VERSION = 'memo93';
+const RUNTIME_VERSION = 'memo94';
 
 async function loadOptional(label, path) {
     try {
@@ -15,7 +15,7 @@ async function loadOptional(label, path) {
     }
 }
 
-// 核心Memo(index.js)先加载；新增运行链统一使用memo93缓存实例。
+// 核心Memo(index.js)先加载；新增运行链统一使用memo94缓存实例。
 // 一次API沿用原作者直接记录链：deep-system注入完整表格规则，同一回复输出<tableEdit>。
 // 独立记录API：正文后额外1次记录API，使用纯tableEdit协议与同一严格执行器。
 const modules = [
@@ -35,4 +35,4 @@ const modules = [
 ];
 
 for (const [label, path] of modules) await loadOptional(label, path);
-console.log('[Memo][loader] memo93 原生直接记录 + 统一严格执行运行时加载完成');
+console.log('[Memo][loader] memo94 正文/推理双通道直录 + 统一严格执行运行时加载完成');

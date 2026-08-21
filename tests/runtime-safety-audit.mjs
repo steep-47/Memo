@@ -90,6 +90,20 @@ if (JSON.stringify(sheets.map(sheet => sheet.rows)) !== JSON.stringify(beforeRes
 
 console.log('runtime-safety-audit PASS: parser=10, numeric-zero=1, save-failure-full-rollback=1, restore-failure-full-rollback=1');
 
+const channels = await import('../scripts/runtime/memoResponseChannels.js');
+const reasoningOnly = { mes: '正常正文', extra: { reasoning: '<tableEdit><!-- updateRow(0,0,{1:"08:40"}) --></tableEdit>' } };
+const recovered = channels.getMemoTableEditChannel(reasoningOnly);
+if (recovered.source !== 'reasoning' || recovered.matches.length !== 1) throw new Error('未从隐藏推理区恢复tableEdit');
+const contentWins = channels.getMemoTableEditChannel({ mes: '<tableEdit><!-- NO_CHANGE --></tableEdit>', extra: reasoningOnly.extra });
+if (contentWins.source !== 'content' || contentWins.matches.length !== 1 || !contentWins.matches[0].includes('NO_CHANGE')) throw new Error('正文/推理同时存在时未保证正文优先和单次执行');
+const swipeWins = channels.getMemoTableEditChannel({ mes: '正文', swipe_id: 1, extra: reasoningOnly.extra, swipe_info: [{}, { extra: { reasoning: '<tableEdit><!-- insertRow(2,{0:"黄芪"}) --></tableEdit>' } }] });
+if (swipeWins.source !== 'reasoning' || !swipeWins.matches[0].includes('insertRow')) throw new Error('未读取当前Swipe独立推理区');
+const bareReasoning = channels.getMemoTableEditChannel({ mes: '正文', extra: { reasoning: '考虑调用 updateRow(0,0,{1:"09:00"})' } });
+if (bareReasoning.source !== 'none' || bareReasoning.matches.length) throw new Error('错误接受了推理区裸函数猜测');
+const tolerantTag = channels.getMemoTableEditChannel({ mes: '正文', extra: { reasoning: '<TABLEEDIT data-hidden="1"><!-- NO_CHANGE --></TABLEEDIT>' } });
+if (tolerantTag.source !== 'reasoning' || tolerantTag.matches.length !== 1) throw new Error('未兼容推理区标签大小写/属性');
+console.log('response-channel audit PASS: reasoning-recovery=1, content-priority=1, swipe-reasoning=1, bare-text-rejected=1, tolerant-tag=1');
+
 const independentText = await fs.readFile(new URL('../scripts/runtime/separateTableUpdate.js', import.meta.url), 'utf8');
 const finishText = await fs.readFile(new URL('../scripts/runtime/singleApiFinish.js', import.meta.url), 'utf8');
 const loaderText = await fs.readFile(new URL('../loader.js', import.meta.url), 'utf8');
