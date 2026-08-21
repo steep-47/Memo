@@ -1,10 +1,10 @@
-import './index.js';
-import './scripts/runtime/memoryContentRules.js?v=memo55';
+import './index.js?v=memo56';
+import './scripts/runtime/memoryContentRules.js?v=memo56';
 import './scripts/runtime/modeRuntimeControl.js?v=memo46';
-import './scripts/runtime/singleApiPromptRestore.js?v=memo55';
+import './scripts/runtime/singleApiPromptRestore.js?v=memo56';
 import './scripts/runtime/singleApiFinish.js?v=memo46';
 import './scripts/runtime/singleApiDiagnostic.js?v=memo53';
 import './scripts/ui/pinchZoom.js?v=memo46';
-import './scripts/ui/personTableSplit.js?v=memo55';
+import './scripts/ui/personTableSplit.js?v=memo56';
 import './scripts/ui/apiModeToggle.js?v=memo46';
 import './scripts/ui/fillStatusColor.js?v=memo46';
