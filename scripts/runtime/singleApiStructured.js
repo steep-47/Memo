@@ -4,6 +4,8 @@ const PREF_KEY = 'independent_record_api_enabled';
 const STRUCTURED_SCHEMA_NAME = 'memo_single_api_response';
 const handledMessages = new WeakMap();
 let pendingStructuredRequest = null;
+let armedGeneration = null;
+let streamRestore = null;
 
 const MEMO_SCHEMA = {
     name: STRUCTURED_SCHEMA_NAME,
@@ -38,6 +40,12 @@ function singleApiActive() {
         && settings?.step_by_step !== true;
 }
 
+function isChatReplyGeneration(type, dryRun = false) {
+    if (!singleApiActive() || dryRun) return false;
+    const value = String(type ?? '').toLowerCase();
+    return value !== 'quiet' && value !== 'impersonate';
+}
+
 function currentLastAssistant() {
     const chat = USER?.getContext?.()?.chat;
     if (!Array.isArray(chat) || !chat.length) return null;
@@ -66,14 +74,12 @@ function parseStructuredPayload(raw) {
 function normalizeTableEdit(raw) {
     let value = String(raw ?? '').trim();
     if (!value || /^NO_CHANGE$/i.test(value)) return 'NO_CHANGE';
-
     value = value
         .replace(/^\s*<tableEdit>\s*/i, '')
         .replace(/\s*<\/tableEdit>\s*$/i, '')
         .replace(/^\s*<!--\s*/, '')
         .replace(/\s*-->\s*$/, '')
         .trim();
-
     return value || 'NO_CHANGE';
 }
 
@@ -104,8 +110,37 @@ function consumePending() {
     return pending;
 }
 
+function restoreStreamingSetting() {
+    if (!streamRestore) return;
+    const { settings, value, timer } = streamRestore;
+    streamRestore = null;
+    if (timer) clearTimeout(timer);
+    try { settings.stream_openai = value; } catch (_) { /* noop */ }
+}
+
+function armGeneration(type, _options, dryRun) {
+    restoreStreamingSetting();
+    armedGeneration = isChatReplyGeneration(type, dryRun)
+        ? { type: String(type ?? ''), startedAt: Date.now() }
+        : null;
+}
+
+function prepareStructuredPrompt(eventData) {
+    if (!armedGeneration || !singleApiActive() || eventData?.dryRun === true) return;
+    const settings = USER?.getContext?.()?.chatCompletionSettings;
+    if (!settings || settings.stream_openai !== true) return;
+
+    settings.stream_openai = false;
+    const timer = setTimeout(() => restoreStreamingSetting(), 15000);
+    streamRestore = { settings, value: true, timer };
+    console.log('[Memo][structured] 本轮结构化主回复临时关闭流式；完成参数计算后自动恢复用户设置');
+}
+
 async function injectStructuredSchema(generateData) {
-    if (!singleApiActive() || !generateData || typeof generateData !== 'object') return;
+    if (!armedGeneration || !singleApiActive() || !generateData || typeof generateData !== 'object') {
+        restoreStreamingSetting();
+        return;
+    }
 
     if (generateData.json_schema && generateData.json_schema?.name !== STRUCTURED_SCHEMA_NAME) {
         console.warn('[Memo][structured] 检测到其他JSON schema，将由Memo一次API结构覆盖以保证单次写表。', generateData.json_schema);
@@ -114,9 +149,11 @@ async function injectStructuredSchema(generateData) {
     const previousAssistant = currentLastAssistant();
     pendingStructuredRequest = {
         createdAt: Date.now(),
+        generationType: armedGeneration.type,
         baseChat: previousAssistant,
         baseMes: previousAssistant ? String(previousAssistant.mes ?? '') : '',
     };
+    armedGeneration = null;
 
     try {
         generateData.json_schema = structuredClone(MEMO_SCHEMA);
@@ -124,17 +161,16 @@ async function injectStructuredSchema(generateData) {
         generateData.json_schema = JSON.parse(JSON.stringify(MEMO_SCHEMA));
     }
 
-    // 结构化JSON在流式过程中会直接暴露给界面；强制本次主请求非流式，仍然只有1次API调用。
-    generateData.stream = false;
-    console.log('[Memo][structured] 已向本次主API请求注入双字段JSON schema；本次请求强制非流式');
+    // createGenerationParameters已经在此事件之前计算了本轮stream；此时恢复用户全局设置即可。
+    restoreStreamingSetting();
+    console.log('[Memo][structured] 已向本次真实角色回复注入双字段JSON schema');
 }
 
 async function unpackStructuredReply(chatId) {
     if (!singleApiActive()) return;
     const pending = pendingStructuredRequest;
-    if (!pending) return; // 首条角色消息、手动重绘等没有经过本次schema请求，不处理。
+    if (!pending) return;
 
-    // 防止极端情况下中断请求遗留pending污染后续消息。
     if (Date.now() - pending.createdAt > 5 * 60 * 1000) {
         consumePending();
         console.warn('[Memo][structured] 丢弃过期结构化请求标记');
@@ -149,7 +185,7 @@ async function unpackStructuredReply(chatId) {
     let basePrefix = '';
     let structuredRaw = currentMes;
 
-    // Continue/append：请求前最后一条就是同一assistant消息，生成结果会追加到旧正文后。
+    // Continue/append：请求前最后一条就是同一assistant消息，只解析本次追加的尾段JSON。
     if (pending.baseChat === chat && pending.baseMes && currentMes.startsWith(pending.baseMes)) {
         basePrefix = pending.baseMes;
         structuredRaw = currentMes.slice(pending.baseMes.length).trim();
@@ -158,7 +194,7 @@ async function unpackStructuredReply(chatId) {
     const payload = parseStructuredPayload(structuredRaw);
     if (!payload || typeof payload !== 'object' || !('reply' in payload) || !('table_edit' in payload)) {
         consumePending();
-        console.warn('[Memo][structured] 最终正文不是预期的双字段结构：', structuredRaw);
+        console.warn(`[Memo][structured] ${pending.generationType || 'reply'} 最终内容不是预期双字段结构：`, structuredRaw);
         EDITOR.warning('一次API结构化响应解析失败：本轮仍只有1次API调用，表格未自动记录。');
         return;
     }
@@ -180,14 +216,21 @@ async function unpackStructuredReply(chatId) {
 
     try {
         const context = USER.getContext();
-        if (typeof context?.updateMessageBlock === 'function') {
-            context.updateMessageBlock(Number(chatId), chat);
-        }
+        if (typeof context?.updateMessageBlock === 'function') context.updateMessageBlock(Number(chatId), chat);
     } catch (error) {
         console.warn('[Memo][structured] 重绘正常正文失败，但不阻断原Memo写表流程', error);
     }
 
     console.log(`[Memo][structured] 单次响应已拆包：${basePrefix ? '续写追加' : '完整回复'}｜table_edit=${tableEdit === 'NO_CHANGE' ? 'NO_CHANGE' : '有操作'}｜reply=${reply.length}字`);
+}
+
+const startedEvent = APP.event_types.GENERATION_STARTED;
+if (startedEvent) APP.eventSource.on(startedEvent, armGeneration);
+
+const promptEvent = APP.event_types.CHAT_COMPLETION_PROMPT_READY;
+if (promptEvent) {
+    APP.eventSource.on(promptEvent, prepareStructuredPrompt);
+    if (typeof APP.eventSource.makeLast === 'function') APP.eventSource.makeLast(promptEvent, prepareStructuredPrompt);
 }
 
 const settingsEvent = APP.event_types.CHAT_COMPLETION_SETTINGS_READY;
@@ -200,4 +243,4 @@ const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, unpackStructuredReply);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(renderedEvent, unpackStructuredReply);
 
-console.log('[Memo] 一次API结构化双通道已加载：pending绑定 + Continue安全追加 + 单次非流式');
+console.log('[Memo] 一次API结构化双通道已加载：正文生成令牌 + pending绑定 + Continue安全追加 + 单轮临时非流式');
