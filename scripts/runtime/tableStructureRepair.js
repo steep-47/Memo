@@ -83,7 +83,7 @@ function rowMap(headers, row) {
     return map;
 }
 
-function findOldRow(sheetName, oldSnapshot, incomingHeaders, incomingRow, rowIndex) {
+function findOldRow(sheetName, oldSnapshot, incomingHeaders, incomingRow) {
     const oldRows = oldSnapshot.rows || [];
     if (!oldRows.length) return null;
 
@@ -104,8 +104,7 @@ function findOldRow(sheetName, oldSnapshot, incomingHeaders, incomingRow, rowInd
         }
     }
 
-    // 无法按实体主键匹配时不猜人物/物品；仅在行数完全一致时允许按原位置保底。
-    if (oldRows.length === (rowIndex + 1) || oldRows.length > rowIndex) return oldRows[rowIndex] || null;
+    // 实体/库存/任务/历史无法按主键匹配时不按行号猜，避免把旧对象字段误补到新对象。
     return null;
 }
 
@@ -126,9 +125,9 @@ function conformValueSheetToSchema(sheet, valueSheet, enabledIndex = -1) {
     const incoming = splitValueSheet(valueSheet);
     if (!incoming.headers.length) return valueSheet;
 
-    const projectedRows = incoming.rows.map((row, rowIndex) => {
+    const projectedRows = incoming.rows.map(row => {
         const incomingValues = rowMap(incoming.headers, row);
-        const oldRow = findOldRow(sheet.name, oldSnapshot, incoming.headers, row, rowIndex);
+        const oldRow = findOldRow(sheet.name, oldSnapshot, incoming.headers, row);
         const oldValues = oldRow ? rowMap(oldSnapshot.headers, oldRow) : new Map();
         return targetHeaders.map(header => {
             // 只有“整列没有返回”才用旧锚点回填；若AI明确返回了该列且值为空，则尊重其清空结果。
