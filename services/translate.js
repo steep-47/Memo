@@ -2,6 +2,7 @@ import applicationFunctionManager from "./appFuncManager.js";
 
 let _lang = undefined;
 let _translations = undefined;
+const CODE_OWNED_SCOPES = new Set(['__defaultSettings__', '__profile_prompts__']);
 
 async function fetchTranslations(locale) {
     try {
@@ -64,14 +65,17 @@ export async function translating(targetScope, source) {
 }
 
 export async function switchLanguage(targetScope, source) {
+    // Database schema, runtime prompts and migration-owned defaults are code,
+    // not translatable UI. Old locale files may contain stale full configs;
+    // allowing those objects to overwrite source would silently roll back the
+    // current seven-table schema when switching language.
+    if (CODE_OWNED_SCOPES.has(targetScope)) return source;
     const { translations, lang } = await getTranslationsConfig();
     if (lang === 'zh-cn') return source;
     return {...source, ...translations[targetScope] || {}};
 }
 
 export async function executeTranslation() {
-    // Translation must be side-effect free. Runtime mode, prompts, schema and
-    // migration version are owned by plugin settings/runtime modules.
     const { translations, lang } = await getTranslationsConfig();
     if (lang === 'zh-cn') return;
     if (Object.keys(translations).length === 0) return;
