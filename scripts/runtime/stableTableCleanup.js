@@ -5,7 +5,9 @@ import { updateSystemMessageTableStatus } from '../renderer/tablePushToChat.js';
 import { repairMissingColumnsBeforeCleanup } from './tableStructureRepair.js';
 
 const INSTALL_FLAG = '__memoStableTableCleanupInstalled';
+const BUTTON_FLAG = 'memoStableCleanupBound';
 let running = false;
+let replacing = false;
 
 const SYSTEM_PROMPT = `你是Memo世界状态表格整理器。只整理现有六张表，不写剧情，不输出完整JSON表格。
 你的最终回复必须且只能包含一个完整<tableEdit>...</tableEdit>。
@@ -139,20 +141,49 @@ async function runStableCleanup() {
     }
 }
 
+function bindStableButton() {
+    if (replacing) return;
+    const oldButton = document.querySelector('#table_clear_up');
+    if (!oldButton) return;
+    if (oldButton.dataset?.[BUTTON_FLAG] === '1') return;
+
+    replacing = true;
+    try {
+        // 直接替换DOM节点：原节点上的jQuery/原生事件监听器全部随节点丢弃。
+        // 这样旧 rebuildSheets() 不可能和新流程同时执行。
+        const newButton = oldButton.cloneNode(true);
+        newButton.dataset[BUTTON_FLAG] = '1';
+        oldButton.replaceWith(newButton);
+        newButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            runStableCleanup();
+        });
+        console.log('[Memo] 表格整理按钮已硬接管，旧rebuildSheets监听器已移除');
+    } finally {
+        replacing = false;
+    }
+}
+
 function install() {
     if (window[INSTALL_FLAG]) return;
     window[INSTALL_FLAG] = true;
-    document.addEventListener('click', event => {
-        const button = event.target?.closest?.('#table_clear_up');
-        if (!button) return;
-        // Capture phase intercepts the legacy JSON rebuild handler before it can run.
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        runStableCleanup();
-    }, true);
-    console.log('[Memo] 稳定tableEdit表格整理已接管主整理按钮');
+
+    // 首次加载与延迟UI初始化都覆盖。
+    bindStableButton();
+    queueMicrotask(bindStableButton);
+    setTimeout(bindStableButton, 100);
+    setTimeout(bindStableButton, 500);
+    setTimeout(bindStableButton, 1500);
+
+    // 设置抽屉可能被重绘；只要旧按钮重新出现，就再次物理替换。
+    const observer = new MutationObserver(() => bindStableButton());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    console.log('[Memo] 稳定tableEdit表格整理接管器已加载');
 }
 
 install();
 
-export { runStableCleanup };
+export { runStableCleanup, bindStableButton };
