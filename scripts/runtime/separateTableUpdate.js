@@ -1,5 +1,6 @@
 import {BASE, DERIVED, EDITOR, SYSTEM, USER} from '../../core/manager.js';
 import { executeIncrementalUpdateFromSummary } from "./absoluteRefresh.js";
+import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js";
 import { newPopupConfirm } from '../../components/popupConfirm.js';
 import { reloadCurrentChat } from "/script.js"
 import {getTablePrompt,initTableData, undoSheets} from "../../index.js"
@@ -53,53 +54,26 @@ function formatQuantity(number, unit) {
     return `${safeNumber}${unit || ''}`;
 }
 
-function ensureCharacterAliasColumnInSheet(sheet, referencePiece) {
-    try {
-        if (!sheet?.getContent) return false;
-        const valueSheet = sheet.getContent(true);
-        if (!Array.isArray(valueSheet) || valueSheet.length === 0) return false;
-        const header = valueSheet[0];
-        if (!Array.isArray(header) || header.includes('别名/称呼')) return false;
-        const nameCol = header.indexOf('姓名');
-        if (nameCol < 0) return false;
-        const insertAt = nameCol + 1;
-        const migrated = valueSheet.map((row, rowIndex) => {
-            const copy = [...row];
-            copy.splice(insertAt, 0, rowIndex === 0 ? '别名/称呼' : '');
-            return copy;
-        });
-        sheet.rebuildHashSheetByValueSheet(migrated);
-        sheet.source.data.note = '值得长期记忆的NPC；同一人物一行；姓名/别名/称呼共同用于识别同一实体';
-        sheet.source.data.insertNode = '新增前先检查姓名/别名/身份/外貌/事件链，确认不是已有实体才插入';
-        sheet.source.data.updateNode = '同一实体出现新姓名/昵称/外号/称呼时更新原行并补入别名；其他长期信息变化时更新';
-        sheet.save(referencePiece, true);
-        console.log('[World Memory][schema] 当前聊天人物表已兼容增加“别名/称呼”列');
-        return true;
-    } catch (error) {
-        console.warn('[World Memory][schema] 当前聊天人物表别名列迁移失败，已跳过:', error);
-        return false;
-    }
-}
-
 /**
  * 对已经成功写入的六表做按“表格语义”区分的轻量整理。
- * 只处理可确定的结构规则；语义不确定时宁可保留，避免误删。
+ * 表结构统一由 tableStructureRepair 维护；这里不再私自增删人物表列。
+ * 只处理可确定的行级规则；语义不确定时宁可保留，避免误删。
  */
 function normalizeWorldMemorySheets(referencePiece) {
     try {
+        // 手动/分步更新可能绕过普通聊天提示事件，因此在行级整理前也静默校验一次标准结构。
+        repairMissingColumnsBeforeCleanup({ notify: false });
+
         const sheets = BASE.getChatSheets?.() ?? [];
         if (!Array.isArray(sheets) || sheets.length === 0) return;
 
         let changed = false;
         const saveValueSheet = (sheet, valueSheet) => {
+            // 六张标准表已安装结构guard；整表压缩/合并也不能改坏标准表头。
             sheet.rebuildHashSheetByValueSheet(valueSheet);
             sheet.save(referencePiece, true);
             changed = true;
         };
-
-        // 人物表结构兼容：旧聊天仅插入“别名/称呼”列，不重建、不清空其他数据。
-        const personSheet = sheets.find(s => s?.name === '人物表');
-        if (personSheet && ensureCharacterAliasColumnInSheet(personSheet, referencePiece)) changed = true;
 
         // 1) 快照型：当前状态 / 角色状态，只保留最新一行。
         for (const sheetName of ['当前状态表', '角色状态表']) {
@@ -203,7 +177,7 @@ function normalizeWorldMemorySheets(referencePiece) {
         }
 
         // 4) 实体档案型：人物是否同一实体需要语义判断。
-        // 代码层只保证“别名/称呼”字段可用；同名或不同称呼的合并由 AI 依据身份、外貌、关系、事件链判断，避免误并同名角色。
+        // 代码层只保护标准14列和已有锚点；同名或不同称呼的合并由AI依据身份、外貌、关系、事件链判断。
 
         // 5) 事件归档型：历史事件不在代码层按文本相似度强制合并。
         // 是否属于同一事件链需要语义判断，交给提示词控制“优先 update、减少流水账”。
@@ -279,6 +253,9 @@ export async function manualSummaryChat(todoChats, confirmResult) {
             return false;
         }
     }
+
+    // 这条链不会经过普通聊天提示事件，必须在读取表格提示前自行统一标准结构。
+    repairMissingColumnsBeforeCleanup({ notify: false });
 
     const { piece: referencePiece } = USER.getChatPiece();
     if (!referencePiece) return false;
