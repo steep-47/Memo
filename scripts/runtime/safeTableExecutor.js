@@ -183,7 +183,9 @@ export function executeMemoTableEdit(raw, piece = null) {
     const snapshots = snapshotSheets(touched);
     try {
         for (const action of parsed.actions) applyAction(action);
-        touched.forEach(sheet => sheet.save(targetPiece, true));
+        // 每条assistant消息都必须保存完整当前表格快照；不能只保存被改动的Sheet，
+        // 否则下一轮BASE.hashSheetsToSheets会把当前piece中缺失的Sheet初始化为空。
+        saveSnapshot(targetPiece);
         return { ok:true, changed:true, noChange:false, count:parsed.actions.length, error:'' };
     } catch (error) {
         rollbackSnapshots(snapshots);
