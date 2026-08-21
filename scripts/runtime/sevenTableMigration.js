@@ -61,6 +61,7 @@ function setIfDifferent(target, key, value) {
     target[key] = value;
     return true;
 }
+function requireSaved(result, label) { if (!result) throw new Error(`${label}保存失败`); return result; }
 function syncRuleData(target, structure) {
     if (!target) return false;
     let changed = false;
@@ -99,7 +100,7 @@ function createGlobalTemplate(structure) {
     });
     applyStructureMetadata(t, structure);
     if (structure.config) t.config = clone(structure.config);
-    t.save();
+    requireSaved(t.save(), `全局模板 ${structure.tableName}`);
     return t;
 }
 function syncExistingGlobalTemplates(rawTemplates, canonicalDefs) {
@@ -110,16 +111,16 @@ function syncExistingGlobalTemplates(rawTemplates, canonicalDefs) {
         try {
             const t = new BASE.SheetTemplate(raw.uid);
             if (applyStructureMetadata(t, canonicalDefs[i])) {
-                t.save();
+                requireSaved(t.save(), `全局模板 ${STANDARD_NAMES[i]}`);
                 changed = true;
             }
         } catch (error) {
-            console.warn(`[Memo] 同步全局模板 ${STANDARD_NAMES[i]} 规则失败`, error);
+            throw new Error(`同步全局模板 ${STANDARD_NAMES[i]} 规则失败：${error?.message||error}`);
         }
     }
     return changed;
 }
-function syncGlobalTemplates() {
+function syncGlobalTemplatesInternal() {
     const root = USER.getSettings();
     if (!root) return false;
     const rawTemplates = Array.isArray(root.table_database_templates) ? root.table_database_templates : [];
@@ -154,6 +155,21 @@ function syncGlobalTemplates() {
     USER.saveSettings?.();
     console.log('[Memo] 全局模板已同步为七表结构与最新标准规则，自定义附加模板已保留');
     return true;
+}
+function syncGlobalTemplates() {
+    const root = USER.getSettings();
+    if (!root) return false;
+    const templatesSnapshot = clone(root.table_database_templates || []);
+    const selectedSnapshot = clone(root.table_selected_sheets || []);
+    try {
+        return syncGlobalTemplatesInternal();
+    } catch (error) {
+        root.table_database_templates = templatesSnapshot;
+        root.table_selected_sheets = selectedSnapshot;
+        try { const restoring=USER.saveSettings?.(); if(restoring?.catch)restoring.catch(restoreError=>console.error('[Memo] 保存已恢复的全局模板设置失败',restoreError)); } catch (restoreError) { console.error('[Memo] 保存已恢复的全局模板设置失败', restoreError); }
+        console.warn('[Memo] 全局七表模板迁移失败，已恢复迁移前设置', error);
+        return false;
+    }
 }
 
 function valueRows(sheet) {
@@ -218,7 +234,7 @@ function mergeProjectedRows(sheet, columns, projectedRows, piece) {
     }
     if (changed) {
         sheet.rebuildHashSheetByValueSheet([['',...columns],...normalizedRows.map(row=>['',...row])]);
-        if (piece) sheet.save(piece,true);
+        if (piece) requireSaved(sheet.save(piece,true), `迁移表格 ${sheet.name}`);
     }
     return changed;
 }
@@ -228,7 +244,7 @@ function createSheetFromStructure(structure, rows=[], piece=null) {
     applyStructureMetadata(newSheet, structure);
     newSheet.rebuildHashSheetByValueSheet([['',...structure.columns],...rows.map(row=>['',...row])]);
     if (newSheet.data) syncRuleData(newSheet.data, structure);
-    if(piece)newSheet.save(piece,true); return newSheet;
+    if(piece)requireSaved(newSheet.save(piece,true), `新建表格 ${newSheet.name}`); return newSheet;
 }
 function ensureCanonicalSheet(existingSheets,name,rows,piece){ const found=existingSheets.find(sheet=>sheet?.name===name); if(found)return found; const structure=USER.tableBaseSetting.tableStructure.find(item=>item.tableName===name); return structure?createSheetFromStructure(structure,rows,piece):null; }
 
@@ -239,14 +255,14 @@ function normalizeStandardSheets(sheets, piece) {
         const sheet = sheets.find(item => item?.name === STANDARD_NAMES[i]);
         if (!sheet) continue;
         if (applyStructureMetadata(sheet, structures[i])) {
-            sheet.save(piece, true);
+            requireSaved(sheet.save(piece, true), `标准表 ${sheet.name}`);
             changed = true;
         }
     }
     return changed;
 }
 
-function migrateCurrentChatSheets() {
+function migrateCurrentChatSheetsInternal() {
     const {piece}=USER.getChatPiece()||{}; if(!piece)return false;
     let sheets=BASE.getChatSheets(); if(!sheets.length)return false;
     const legacy=sheets.find(sheet=>sheet?.name===LEGACY_PERSON_NAME);
@@ -272,8 +288,33 @@ function migrateCurrentChatSheets() {
     const custom=refreshed.filter(sheet=>sheet&&!canonicalSet.has(sheet.name)&&sheet.name!==LEGACY_PERSON_NAME); const ordered=[...canonical,...custom];
     const currentNames=refreshed.filter(s=>s?.name!==LEGACY_PERSON_NAME).map(s=>s.name); const targetNames=ordered.map(s=>s?.name);
     const needsReorder=currentNames.length!==targetNames.length||targetNames.some((name,i)=>currentNames[i]!==name)||!!legacy;
-    if(changed||needsReorder){ BASE.reSaveAllChatSheets(ordered); if(legacy?.uid&&piece.hash_sheets)delete piece.hash_sheets[legacy.uid]; USER.saveChat(); BASE.refreshContextView?.(); BASE.refreshTempView?.(true); console.log('[Memo] 世界状态表已统一为七表：固定启用/索引/上下文发送/标准规则元数据；人物发展年龄与确认时间分列'); return true; }
+    if(changed||needsReorder){ if(BASE.reSaveAllChatSheets(ordered)!==true)throw new Error('七表重排保存失败'); try{BASE.refreshContextView?.();BASE.refreshTempView?.(true);}catch(error){console.warn('[Memo] 七表迁移已提交，但视图刷新失败',error);} console.log('[Memo] 世界状态表已统一为七表：固定启用/索引/上下文发送/标准规则元数据；人物发展年龄与确认时间分列'); return true; }
     return false;
+}
+function migrateCurrentChatSheets() {
+    const { piece } = USER.getChatPiece() || {};
+    const sheets = BASE.getChatSheets?.() || [];
+    const sheetSnapshots = new Map();
+    for (const sheet of sheets) {
+        const data = sheet?.filterSavingData?.();
+        if (data) sheetSnapshots.set(sheet, clone(data));
+    }
+    const contextSnapshot = clone(BASE.sheetsData?.context || []);
+    const hadHash = !!piece && Object.prototype.hasOwnProperty.call(piece, 'hash_sheets');
+    const hashSnapshot = hadHash ? clone(piece.hash_sheets) : undefined;
+    const extraSnapshot = piece ? clone(piece.extra || {}) : undefined;
+    const swipeInfoSnapshot = piece ? clone(piece.swipe_info || []) : undefined;
+    try {
+        return migrateCurrentChatSheetsInternal();
+    } catch (error) {
+        for (const [sheet, data] of sheetSnapshots) {
+            try { sheet.loadJson(clone(data)); } catch (rollbackError) { console.error(`[Memo] 回滚表格 ${sheet?.name || '未知表'} 失败`, rollbackError); }
+        }
+        if (BASE.sheetsData) BASE.sheetsData.context = contextSnapshot;
+        if (piece) { if (hadHash) piece.hash_sheets = hashSnapshot; else delete piece.hash_sheets; piece.extra=extraSnapshot; piece.swipe_info=swipeInfoSnapshot; }
+        console.warn('[Memo] 七表迁移失败，已恢复迁移前状态', error);
+        return false;
+    }
 }
 function ensureSevenTableWorld(){ const settingsChanged=normalizeSettingsStructure(); const templatesChanged=syncGlobalTemplates(); const dataChanged=migrateCurrentChatSheets(); if(settingsChanged)USER.saveSettings?.(); return settingsChanged||templatesChanged||dataChanged; }
 export { STANDARD_NAMES, MAIN_COLUMNS, DEV_COLUMNS, normalizeSettingsStructure, syncGlobalTemplates, migrateCurrentChatSheets, ensureSevenTableWorld };

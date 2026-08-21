@@ -192,11 +192,15 @@ export class Sheet extends SheetBase {
      * @returns {Sheet|boolean}
      */
     save(targetPiece = USER.getChatPiece()?.piece, manualSave = false) {
-        const sheetDataToSave = this.filterSavingData()
-        sheetDataToSave.template = this.template?.uid;
-
-        let sheets = BASE.sheetsData.context ?? [];
+        const hadTargetHash = !!targetPiece && Object.prototype.hasOwnProperty.call(targetPiece, 'hash_sheets');
+        let previousContext;
+        let previousTargetHash;
         try {
+            previousContext = structuredClone(BASE.sheetsData.context ?? []);
+            previousTargetHash = hadTargetHash ? structuredClone(targetPiece.hash_sheets) : undefined;
+            const sheetDataToSave = this.filterSavingData()
+            sheetDataToSave.template = this.template?.uid;
+            let sheets = BASE.sheetsData.context ?? [];
             if (sheets.some(t => t.uid === sheetDataToSave.uid)) {
                 sheets = sheets.map(t => t.uid === sheetDataToSave.uid ? sheetDataToSave : t);
             } else {
@@ -214,6 +218,11 @@ export class Sheet extends SheetBase {
 
             return this;
         } catch (e) {
+            if (previousContext !== undefined) BASE.sheetsData.context = previousContext;
+            if (targetPiece) {
+                if (hadTargetHash) targetPiece.hash_sheets = previousTargetHash;
+                else delete targetPiece.hash_sheets;
+            }
             EDITOR.error(`保存模板失败`, e.message, e);
             return false;
         }

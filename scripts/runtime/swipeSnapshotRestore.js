@@ -1,4 +1,5 @@
 import { APP, BASE, USER } from '../../core/manager.js';
+import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo85';
 
 function copyHashSheets(value){try{return BASE.copyHashSheets(value);}catch(_){return JSON.parse(JSON.stringify(value));}}
 function tableEditMatches(text){const regex=/<tableEdit>(.*?)<\/tableEdit>/gs;const matches=[];let match;while((match=regex.exec(String(text??'')))!==null)matches.push(match[1]);return matches;}
@@ -11,16 +12,16 @@ function restoreMemoSwipeSnapshot(chatId){
     if(!Number.isInteger(swipeId)||swipeId<0)return;
     const snapshot=snapshotFor(chat,swipeId);
     if(!snapshot||typeof snapshot!=='object')return;
-    try{
-        chat.hash_sheets=copyHashSheets(snapshot);
-        if(!chat.extra||typeof chat.extra!=='object')chat.extra={};
-        chat.extra.memo_hash_sheets=copyHashSheets(snapshot);
-        BASE.hashSheetsToSheets(chat.hash_sheets);
-        chat.tableEditMatches=tableEditMatches(chat.mes);
-        console.log(`[Memo] 已从严格Swipe快照恢复表格：message=${chatId} swipe=${swipeId}`);
-    }catch(error){
-        console.error('[Memo] Swipe快照恢复失败，将交给原Memo重放逻辑兜底',error);
-    }
+    const chatSnapshot=copyHashSheets(snapshot);
+    const extraSnapshot=copyHashSheets(snapshot);
+    if(!chatSnapshot||!extraSnapshot)return;
+    const result=restoreMemoSnapshot(chatSnapshot);
+    if(!result.ok){console.error('[Memo] Swipe快照恢复失败，已回滚恢复动作',result.error);return;}
+    chat.hash_sheets=chatSnapshot;
+    if(!chat.extra||typeof chat.extra!=='object')chat.extra={};
+    chat.extra.memo_hash_sheets=extraSnapshot;
+    chat.tableEditMatches=tableEditMatches(chat.mes);
+    console.log(`[Memo] 已从严格Swipe快照恢复表格：message=${chatId} swipe=${swipeId}`);
 }
 
 const event=APP.event_types.MESSAGE_SWIPED;

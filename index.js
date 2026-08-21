@@ -3,10 +3,10 @@ import { openTableRendererPopup, updateSystemMessageTableStatus } from "./script
 import { loadSettings } from "./scripts/settings/userExtensionSetting.js";
 import { ext_getAllTables, ext_exportAllTablesAsJson } from './scripts/settings/standaloneAPI.js';
 import { openTableDebugLogPopup } from "./scripts/settings/devConsole.js";
-import { TableTwoStepSummary } from "./scripts/runtime/separateTableUpdate.js";
+import { TableTwoStepSummary } from "./scripts/runtime/separateTableUpdate.js?v=memo85";
 import { initTest } from "./components/_fotTest.js";
 import { initAppHeaderTableDrawer, openAppHeaderTableDrawer } from "./scripts/renderer/appHeaderTableBaseDrawer.js";
-import { initRefreshTypeSelector } from './scripts/runtime/absoluteRefresh.js';
+import { initRefreshTypeSelector } from './scripts/runtime/absoluteRefresh.js?v=memo85';
 import {refreshTempView, updateTableContainerPosition} from "./scripts/editor/tableTemplateEditView.js";
 import { functionToBeRegistered } from "./services/debugs.js";
 import { parseLooseDict, replaceUserTag } from "./utils/stringUtil.js";
@@ -14,6 +14,7 @@ import {executeTranslation} from "./services/translate.js";
 import applicationFunctionManager from "./services/appFuncManager.js"
 import {SheetBase} from "./core/table/base.js";
 import { Cell } from "./core/table/cell.js";
+import { executeMemoTableEdit, restoreMemoSnapshot } from './scripts/runtime/safeTableExecutor.js?v=memo85';
 import { initExternalDataAdapter } from './external-data-adapter.js';
 
 
@@ -203,7 +204,9 @@ export function getTablePrompt(eventData, isPureData = false) {
  */
 export function getTablePromptByPiece(piece, isPureData = false) {
     const {hash_sheets} = piece
-    const sheets = BASE.hashSheetsToSheets(hash_sheets)
+    const restored = restoreMemoSnapshot(hash_sheets)
+    if (!restored.ok) { console.error('构建表格提示词失败：无法原子恢复参考快照', restored.error); return ''; }
+    const sheets = BASE.getChatSheets()
         .filter(sheet => sheet.enable)
         .filter(sheet => sheet.sendToContext !== false);
     console.log("构建提示词时的信息 (已过滤)", hash_sheets, sheets)
@@ -301,21 +304,11 @@ export function handleEditStrInMessage(chat, mesIndex = -1, ignoreCheck = false)
 export function parseTableEditTag(piece, mesIndex = -1, ignoreCheck = false) {
     const { matches } = getTableEditTag(piece.mes)
     if (!ignoreCheck && !isTableEditStrChanged(piece, matches)) return false
-    const tableEditActions = handleTableEditTag(matches)
-    tableEditActions.forEach((action, index) => tableEditActions[index].action = classifyParams(formatParams(action.param)))
-    console.log("解析到的表格编辑指令", tableEditActions)
-
-    // 获取上一个表格数据
     const { piece: prePiece } = mesIndex === -1 ? BASE.getLastSheetsPiece(1) : BASE.getLastSheetsPiece(mesIndex - 1, 1000, false)
-    const sheets = BASE.hashSheetsToSheets(prePiece.hash_sheets).filter(sheet => sheet.enable)
-    console.log("执行指令时的信息", sheets)
-    for (const EditAction of sortActions(tableEditActions)) {
-        executeAction(EditAction, sheets)
-    }
-    sheets.forEach(sheet => sheet.save(piece, true))
-    console.log("聊天模板：", BASE.sheetsData.context)
-    console.log("获取到的表格数据", prePiece)
-    console.log("测试总chat", USER.getContext().chat)
+    const restored = restoreMemoSnapshot(prePiece?.hash_sheets)
+    if (!restored.ok) { console.error('旧解析入口恢复基线失败，已停止执行', restored.error); return false; }
+    const result = executeMemoTableEdit(matches, piece)
+    if (!result.ok) { console.error('旧解析入口严格执行失败', result.error); return false; }
     return true
 }
 
@@ -324,33 +317,10 @@ export function parseTableEditTag(piece, mesIndex = -1, ignoreCheck = false) {
  * @param {string[]} matches 编辑指令字符串
  */
 export function executeTableEditActions(matches, referencePiece) {
-    const tableEditActions = handleTableEditTag(matches)
-    tableEditActions.forEach((action, index) => tableEditActions[index].action = classifyParams(formatParams(action.param)))
-    console.log("解析到的表格编辑指令", tableEditActions)
-
-    // 核心修复：不再信任传入的 referencePiece.hash_sheets，而是直接从 BASE 获取当前激活的、唯一的 Sheet 实例。
-    const sheets = BASE.getChatSheets().filter(sheet => sheet.enable)
-    if (!sheets || sheets.length === 0) {
-        console.error("executeTableEditActions: 未找到任何启用的表格实例，操作中止。");
-        return false;
-    }
-
-    console.log("执行指令时的信息 (来自 BASE.getChatSheets)", sheets)
-    for (const EditAction of sortActions(tableEditActions)) {
-        executeAction(EditAction, sheets)
-    }
-
-    // 核心修复：确保修改被保存到当前最新的聊天片段中。
-    const { piece: currentPiece } = USER.getChatPiece();
-    if (!currentPiece) {
-        console.error("executeTableEditActions: 无法获取当前聊天片段，保存操作失败。");
-        return false;
-    }
-    sheets.forEach(sheet => sheet.save(currentPiece, true))
-
-    console.log("聊天模板：", BASE.sheetsData.context)
-    console.log("测试总chat", USER.getContext().chat)
-    return true // 返回 true 表示成功
+    const currentPiece = USER.getChatPiece()?.piece;
+    const result = executeMemoTableEdit(matches, currentPiece);
+    if (!result.ok) console.error('executeTableEditActions: 严格校验/执行失败', result.error, matches);
+    return result.ok;
 }
 
 /**

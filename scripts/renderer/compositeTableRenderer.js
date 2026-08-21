@@ -58,6 +58,6 @@ function parseCompositeRender(template, tablesContext) {
 
         const cell = targetSheet.findCellByPosition(rowIndex, colIndex);
 
-        return cell ? (cell.data.value || '') : `<span style="color: red;" title="Cell ${colLetter}${rowNumber} not found in table '${tableName}'.">?</span>`;
+        return cell ? (cell.data.value ?? '') : `<span style="color: red;" title="Cell ${colLetter}${rowNumber} not found in table '${tableName}'.">?</span>`;
     });
 }

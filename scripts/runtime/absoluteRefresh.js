@@ -3,13 +3,14 @@ import { BASE, DERIVED, EDITOR, SYSTEM, USER } from '../../core/manager.js';
 import {  convertOldTablesToNewSheets, executeTableEditActions, getTableEditTag, getTablePromptByPiece } from "../../index.js";
 import JSON5 from '../../utils/json5.min.mjs'
 import { updateSystemMessageTableStatus } from "../renderer/tablePushToChat.js";
-import { TableTwoStepSummary } from "./separateTableUpdate.js";
+import { TableTwoStepSummary } from "./separateTableUpdate.js?v=memo85";
 import { estimateTokenCount, handleCustomAPIRequest, handleMainAPIRequest } from "../settings/standaloneAPI.js";
 import { profile_prompts } from "../../data/profile_prompts.js";
 import { Form } from '../../components/formManager.js';
 import { refreshRebuildTemplate } from "../settings/userExtensionSetting.js"
 import { safeParse } from '../../utils/stringUtil.js';
-import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js";
+import { repairMissingColumnsBeforeCleanup } from "./tableStructureRepair.js?v=memo85";
+import { restoreMemoSnapshot } from "./safeTableExecutor.js?v=memo85";
 
 // 在解析响应后添加验证
 function validateActions(actions) {
@@ -210,6 +211,9 @@ export async function getPromptAndRebuildTable(templateName = '', additionalProm
  * @returns
  */
 export async function rebuildTableActions(force = false, silentUpdate = USER.tableBaseSetting.bool_silent_refresh, chatToBeUsed = '') {
+    const { runStableCleanup } = await import('./stableTableCleanup.js?v=memo85');
+    return runStableCleanup();
+    /* legacy full-table rebuild retained below for source compatibility; execution is intentionally unreachable */
     // #region 表格总结执行
     let r = '';
     if (!SYSTEM.lazy('rebuildTableActions', 1000)) return;
@@ -221,7 +225,9 @@ export async function rebuildTableActions(force = false, silentUpdate = USER.tab
         if (!piece) {
             throw new Error('findLastestTableData 未返回有效的表格数据');
         }
-        const latestTables = BASE.hashSheetsToSheets(piece.hash_sheets).filter(sheet => sheet.enable);
+        const restored = restoreMemoSnapshot(piece.hash_sheets);
+        if (!restored.ok) throw new Error(`恢复完整重建基线失败：${restored.error}`);
+        const latestTables = BASE.getChatSheets().filter(sheet => sheet.enable);
         DERIVED.any.waitingTable = latestTables;
         DERIVED.any.waitingTableIdMap = latestTables.map(table => table.uid);
 
@@ -878,6 +884,7 @@ export async function executeIncrementalUpdateFromSummary(
     isSilentMode = false
 ) {
     if (!SYSTEM.lazy('executeIncrementalUpdate', 1000)) return '';
+    const sessionChat=USER.getContext?.()?.chat;
 
     try {
         DERIVED.any.waitingPiece = referencePiece;
@@ -1003,21 +1010,22 @@ export async function executeIncrementalUpdateFromSummary(
         // **核心修复**: 使用与常规填表完全一致的 getTableEditTag 函数来提取指令
         const { matches } = getTableEditTag(rawContent);
 
-        if (!matches || matches.length === 0) {
-            EDITOR.info("AI未返回任何有效的<tableEdit>操作指令，表格内容未发生变化。");
-            return 'success';
+        if (!matches || matches.length !== 1) {
+            EDITOR.error(`AI必须且只能返回1个<tableEdit>，实际为${matches?.length ?? 0}个。`);
+            return 'error';
         }
 
+        if(USER.getContext?.()?.chat!==sessionChat){console.warn('[Memo] 旧增量任务因聊天切换安全作废');return'detached';}
         try {
-            // 将提取到的、未经修改的原始指令数组传递给执行器
-            executeTableEditActions(matches, referencePiece)
+            if (!executeTableEditActions(matches, referencePiece)) return 'error';
         } catch (e) {
             EDITOR.error("执行表格操作指令时出错: ", e.message, e);
             console.error("错误原文: ", matches.join('\n'));
+            return 'error';
         }
-        USER.saveChat()
-        BASE.refreshContextView();
-        updateSystemMessageTableStatus();
+        await USER.saveChat()
+        if(USER.getContext?.()?.chat!==sessionChat){console.warn('[Memo] 旧增量任务保存期间切换聊天，不刷新当前新聊天');return'detached';}
+        try{BASE.refreshContextView();updateSystemMessageTableStatus();}catch(error){console.warn('[Memo] 旧增量兼容入口已提交，但视图刷新失败',error);}
         EDITOR.success('独立填表完成！');
         return 'success';
 

@@ -36,7 +36,7 @@ function staticPipeline(target) {
         }
         
         const cell = sheet.getCellFromAddress(cellAddress);
-        return cell ? (cell.data.value || `?`) :
+        return cell ? (cell.data.value === 0 ? 0 : (cell.data.value || `?`)) :
             `<span style="color: red">无单元格: ${cellAddress}</span>`;
     });
 
@@ -47,7 +47,7 @@ function staticPipeline(target) {
         console.log("静态渲染行:", rowIndex, "静态渲染列:", colIndex);
         const c = target.findCellByPosition(rowIndex, colIndex);
         console.log("获取单元格位置：", c, '\n获取单元格内容：', c.data.value);
-        return c ? (c.data.value || `<span style="color: red">?</span>`) :
+        return c ? (c.data.value === 0 ? 0 : (c.data.value || `<span style="color: red">?</span>`)) :
             `<span style="color: red">无单元格</span>`;
     });
 }

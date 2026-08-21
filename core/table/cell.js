@@ -133,7 +133,7 @@ export class Cell {
                 this.element.style.color = 'var(--SmartThemeEmColor)';
                 this.element.style.fontWeight = 'normal';
             } else if (rowIndex === 0) {
-                this.element.textContent = this.data.value || ''; // Column headers (A, B, C...)
+                this.element.textContent = this.data.value ?? ''; // Column headers (A, B, C...)
                 this.element.classList.add('sheet-header-cell-top');
             } else if (colIndex === 0) {
                 this.element.textContent = this.data.value || (rowIndex - 1); // Row headers (1, 2, 3...)
@@ -143,7 +143,7 @@ export class Cell {
                 this.element.style.color = 'var(--SmartThemeEmColor)';
                 this.element.style.fontWeight = 'normal';
             } else {
-                this.element.textContent = this.data.value || '';
+                this.element.textContent = this.data.value ?? '';
                 this.element.classList.add('sheet-cell-other');
                 this.element.style.color = 'var(--SmartThemeEmColor)';
             }

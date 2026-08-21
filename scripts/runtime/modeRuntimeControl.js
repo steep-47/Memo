@@ -1,5 +1,6 @@
 import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
-import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo84';
+import { TableTwoStepSummary } from './separateTableUpdate.js?v=memo85';
+import { restoreMemoSnapshot } from './safeTableExecutor.js?v=memo85';
 
 const PREF_KEY='independent_record_api_enabled';
 const attempted=new WeakMap();
@@ -9,11 +10,12 @@ let activeJob=null;
 let pendingRoleGeneration={generationType:'normal',baseMes:''};
 
 function readEnabled(){return USER?.getSettings?.()?.muyoo_dataTable?.[PREF_KEY]===true;}
+function copyHashSheets(value){try{return BASE.copyHashSheets(value);}catch(_){try{return structuredClone(value);}catch(error){console.error('[Memo] 无法复制Swipe表格快照',error);return null;}}}
 function forceNormalMode(){if(USER?.tableBaseSetting)USER.tableBaseSetting.step_by_step=false;}
 function preparePromptMode(){if(USER?.tableBaseSetting)USER.tableBaseSetting.step_by_step=readEnabled();}
 function tableEditMatches(text){const regex=/<tableEdit>(.*?)<\/tableEdit>/gs;const matches=[];let match;while((match=regex.exec(String(text??'')))!==null)matches.push(match[1]);return matches;}
 function snapshotFor(chat,id){return chat?.swipe_info?.[id]?.extra?.memo_hash_sheets||chat?.swipe_info?.[id]?.memo_hash_sheets||null;}
-function restoreCurrentStrictSnapshot(chatId){if(!readEnabled())return;const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user===true)return;const id=Number(chat?.swipe_id);const snapshot=Number.isInteger(id)&&id>=0?snapshotFor(chat,id):null;if(!snapshot)return;try{chat.hash_sheets=BASE.copyHashSheets(snapshot);if(!chat.extra||typeof chat.extra!=='object')chat.extra={};chat.extra.memo_hash_sheets=BASE.copyHashSheets(snapshot);BASE.hashSheetsToSheets(chat.hash_sheets);chat.tableEditMatches=tableEditMatches(chat.mes);console.log(`[Memo] 独立模式渲染前恢复严格Swipe快照：message=${chatId} swipe=${id}`);}catch(error){console.warn('[Memo] 独立模式恢复严格Swipe快照失败，将交给原Memo兜底',error);}}
+function restoreCurrentStrictSnapshot(chatId){if(!readEnabled())return;const chat=USER?.getContext?.()?.chat?.[chatId];if(!chat||chat.is_user===true)return;const id=Number(chat?.swipe_id);const snapshot=Number.isInteger(id)&&id>=0?snapshotFor(chat,id):null;if(!snapshot)return;const chatSnapshot=copyHashSheets(snapshot);const extraSnapshot=copyHashSheets(snapshot);if(!chatSnapshot||!extraSnapshot)return;const result=restoreMemoSnapshot(chatSnapshot);if(!result.ok){console.warn('[Memo] 独立模式恢复严格Swipe快照失败，已回滚恢复动作',result.error);return;}chat.hash_sheets=chatSnapshot;if(!chat.extra||typeof chat.extra!=='object')chat.extra={};chat.extra.memo_hash_sheets=extraSnapshot;chat.tableEditMatches=tableEditMatches(chat.mes);console.log(`[Memo] 独立模式渲染前恢复严格Swipe快照：message=${chatId} swipe=${id}`);}
 function beforeRendered(chatId){forceNormalMode();restoreCurrentStrictSnapshot(chatId);}
 function isAppendGeneration(type){const value=String(type??'').toLowerCase();return value==='continue'||value==='append'||value==='appendfinal';}
 function captureGeneration(type,_params,dryRun){if(dryRun)return;const value=String(type??'normal').toLowerCase();if(value==='quiet'||value==='impersonate')return;const chat=USER?.getContext?.()?.chat;const last=Array.isArray(chat)&&chat.length?chat[chat.length-1]:null;pendingRoleGeneration={generationType:value,baseMes:isAppendGeneration(value)&&last?.is_user!==true?String(last?.mes??''):''};}
@@ -46,6 +48,7 @@ function startIndependentJob(job){
     Promise.resolve(task)
         .then(result=>{
             if(result===true){EDITOR.success('独立填表完成！');console.log(`[Memo] 独立记录 API：message=${liveId} swipe=${Number(chat?.swipe_id??0)} ${options.forceFull?'完整重算':options.generationType||'normal'}完成`);return;}
+            if(result==='detached'){console.log('[Memo] 独立记录任务因聊天切换安全作废；不写入、不恢复、不自动重试');return;}
             if(result==='stale'){console.log('[Memo] 独立记录旧结果已作废：正文在API期间变化，排队重算最新版本');enqueueCurrentVersion(chat,options);return;}
             console.warn('[Memo] 独立记录 API：本版本未完成写入；为避免重复扣费不会自动重试同一版本');EDITOR.warning('独立记录未完成：本轮未成功写入。不会自动重试；可手动立即填表或重新生成。');
         })

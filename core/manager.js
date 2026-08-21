@@ -220,23 +220,52 @@ export const BASE = {
         BASE.reSaveAllChatSheets(mergedSheets)
     },
     saveChatSheets(saveToPiece = true) {
+        let failed = null
         if(saveToPiece){
             const {piece} = USER.getChatPiece()
             if(!piece) return EDITOR.error("没有记录载体，表格是保存在聊天记录中的，请聊至少一轮后再重试")
-            BASE.getChatSheets(sheet => sheet.save(piece, true))
-        }else BASE.getChatSheets(sheet => sheet.save(undefined, true))
+            BASE.getChatSheets(sheet => { if(sheet.save(piece, true) === false) failed = sheet.name || sheet.uid })
+        }else BASE.getChatSheets(sheet => { if(sheet.save(undefined, true) === false) failed = sheet.name || sheet.uid })
+        if(failed) throw new Error(`保存表格 ${failed} 失败`)
         USER.saveChat()
+        return true
     },
     reSaveAllChatSheets(sheets) {
-        BASE.sheetsData.context = []
+        const previousContext = JSON.parse(JSON.stringify(BASE.sheetsData.context ?? []))
         const {piece} = USER.getChatPiece()
         if(!piece) return EDITOR.error("没有记录载体，表格是保存在聊天记录中的，请聊至少一轮后再重试")
-        sheets.forEach(sheet => {
-            sheet.save(piece, true)
-        })
-        updateSelectBySheetStatus()
-        BASE.refreshTempView(true)
-        USER.saveChat()
+        const hadHash = Object.prototype.hasOwnProperty.call(piece, 'hash_sheets')
+        const previousHash = hadHash ? JSON.parse(JSON.stringify(piece.hash_sheets ?? null)) : undefined
+        const previousExtra = JSON.parse(JSON.stringify(piece.extra ?? {}))
+        const previousSwipeInfo = JSON.parse(JSON.stringify(piece.swipe_info ?? []))
+        BASE.sheetsData.context = []
+        try {
+            piece.hash_sheets = {}
+            sheets.forEach(sheet => { if(sheet.save(piece, true) === false) throw new Error(`保存表格 ${sheet.name || sheet.uid} 失败`) })
+            const snapshot = BASE.copyHashSheets(piece.hash_sheets)
+            if(!piece.extra || typeof piece.extra !== 'object') piece.extra = {}
+            piece.extra.memo_hash_sheets = BASE.copyHashSheets(snapshot)
+            const swipeId = Number(piece.swipe_id)
+            if(Number.isInteger(swipeId) && swipeId >= 0) {
+                if(!Array.isArray(piece.swipe_info)) piece.swipe_info = []
+                if(!piece.swipe_info[swipeId] || typeof piece.swipe_info[swipeId] !== 'object') piece.swipe_info[swipeId] = {}
+                if(!piece.swipe_info[swipeId].extra || typeof piece.swipe_info[swipeId].extra !== 'object') piece.swipe_info[swipeId].extra = {}
+                piece.swipe_info[swipeId].extra.memo_hash_sheets = BASE.copyHashSheets(snapshot)
+                delete piece.swipe_info[swipeId].memo_hash_sheets
+            }
+            const saving = USER.saveChat()
+            if(saving?.catch) saving.catch(error => console.error('[Memo] 重存全部聊天表格持久化失败', error))
+        } catch (error) {
+            BASE.sheetsData.context = previousContext
+            if(hadHash) piece.hash_sheets = previousHash
+            else delete piece.hash_sheets
+            piece.extra = previousExtra
+            piece.swipe_info = previousSwipeInfo
+            throw error
+        }
+        try { updateSelectBySheetStatus() } catch(error) { console.warn('[Memo] 表格重存后更新选择器失败，不影响已提交数据', error) }
+        try { BASE.refreshTempView(true) } catch(error) { console.warn('[Memo] 表格重存后刷新模板视图失败，不影响已提交数据', error) }
+        return true
     },
     updateSelectBySheetStatus(){
         updateSelectBySheetStatus()

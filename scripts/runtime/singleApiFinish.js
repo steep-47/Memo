@@ -8,10 +8,12 @@ function tokenFor(chat,status){return`${Number(chat?.swipe_id??0)}\u241f${String
 function wasHandled(chat,token){return handled.get(chat)?.has(token)===true;}
 function markHandled(chat,token){let set=handled.get(chat);if(!set){set=new Set();handled.set(chat,set);}set.add(token);}
 
-function finishSingleApi(chatId){
+async function finishSingleApi(chatId){
     if(independentEnabled())return;
     const chat=USER?.getContext?.()?.chat?.[chatId];
     if(!chat||chat.is_user===true)return;
+    const persistence=chat.__memoStrictPersistence;
+    if(persistence&&typeof persistence.then==='function'){try{if(await persistence!==true)return;}catch(_){return;}}
     const status=chat.__memoStrictExecution;
     if(!status||status.ok!==true||status.changed!==true||status.noChange===true)return;
     if(Number(status.swipeId)!==Number(chat?.swipe_id??0))return;

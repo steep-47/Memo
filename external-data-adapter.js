@@ -219,10 +219,11 @@ const adapter = {
             if (result) {
                 // 关键修复1：保存聊天数据到文件，确保数据持久化
                 try {
-                    USER.saveChat();
+                    await USER.saveChat();
                     logger.debug('聊天数据已保存到文件');
                 } catch (saveError) {
                     logger.warn('保存聊天数据失败', saveError);
+                    return { success: false, message: `表格已在当前页面修改，但聊天保存失败: ${saveError.message || saveError}`, error: saveError };
                 }
 
                 // 关键修复2：刷新表格视图，确保界面更新
@@ -285,10 +286,11 @@ const adapter = {
             if (result) {
                 // 关键修复1：保存聊天数据到文件，确保数据持久化
                 try {
-                    USER.saveChat();
+                    await USER.saveChat();
                     logger.debug('聊天数据已保存到文件');
                 } catch (saveError) {
                     logger.warn('保存聊天数据失败', saveError);
+                    return { success: false, message: `表格已在当前页面修改，但聊天保存失败: ${saveError.message || saveError}`, error: saveError };
                 }
 
                 // 关键修复2：刷新表格视图，确保界面更新
@@ -379,4 +381,3 @@ export const externalDataAdapter = {
 };
 
 export default externalDataAdapter;
-
