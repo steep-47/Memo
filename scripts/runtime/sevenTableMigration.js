@@ -15,6 +15,12 @@ function clone(v) {
 }
 function canonicalStructures() {
     const structures = defaultSettings.tableStructure.map(item => clone(item));
+    for (const item of structures) {
+        if (!STANDARD_NAMES.includes(item?.tableName)) continue;
+        item.enable = true;
+        item.toChat = true;
+        item.tochat = true;
+    }
     const dev = structures.find(item => item?.tableName === '人物发展表');
     if (dev) {
         dev.columns = [...DEV_COLUMNS];
@@ -50,6 +56,38 @@ function templateColumns(raw) {
         return row.slice(1).map(cellUid => norm(t.cells?.get?.(cellUid)?.data?.value));
     } catch (_) { return []; }
 }
+function setIfDifferent(target, key, value) {
+    if (target?.[key] === value) return false;
+    target[key] = value;
+    return true;
+}
+function syncRuleData(target, structure) {
+    if (!target) return false;
+    let changed = false;
+    const values = {
+        note: structure.note || '',
+        initNode: structure.initNode || '',
+        insertNode: structure.insertNode || '',
+        updateNode: structure.updateNode || '',
+        deleteNode: structure.deleteNode || '',
+    };
+    for (const [key, value] of Object.entries(values)) changed = setIfDifferent(target, key, value) || changed;
+    const description = [values.note, values.initNode, values.insertNode, values.updateNode, values.deleteNode].filter(Boolean).join('\n');
+    changed = setIfDifferent(target, 'description', description) || changed;
+    return changed;
+}
+function applyStructureMetadata(target, structure) {
+    if (!target || !structure) return false;
+    let changed = false;
+    changed = setIfDifferent(target, 'enable', true) || changed;
+    changed = setIfDifferent(target, 'required', structure.Required === true) || changed;
+    changed = setIfDifferent(target, 'tochat', structure.tochat ?? structure.toChat ?? true) || changed;
+    changed = setIfDifferent(target, 'sendToContext', true) || changed;
+    changed = setIfDifferent(target, 'triggerSend', structure.triggerSend ?? false) || changed;
+    changed = setIfDifferent(target, 'triggerSendDeep', structure.triggerSendDeep ?? 1) || changed;
+    if (target.source?.data) changed = syncRuleData(target.source.data, structure) || changed;
+    return changed;
+}
 function createGlobalTemplate(structure) {
     const t = new BASE.SheetTemplate();
     t.domain = 'global';
@@ -59,22 +97,27 @@ function createGlobalTemplate(structure) {
         const cell = t.findCellByPosition(0, index + 1);
         if (cell) cell.data.value = column;
     });
-    t.enable = structure.enable !== false;
-    t.tochat = structure.tochat ?? structure.toChat ?? true;
-    t.sendToContext = true;
-    t.required = structure.Required === true;
-    t.triggerSend = structure.triggerSend;
-    t.triggerSendDeep = structure.triggerSendDeep;
+    applyStructureMetadata(t, structure);
     if (structure.config) t.config = clone(structure.config);
-    if (t.source?.data) {
-        t.source.data.note = structure.note || '';
-        t.source.data.initNode = structure.initNode || '';
-        t.source.data.deleteNode = structure.deleteNode || '';
-        t.source.data.updateNode = structure.updateNode || '';
-        t.source.data.insertNode = structure.insertNode || '';
-    }
     t.save();
     return t;
+}
+function syncExistingGlobalTemplates(rawTemplates, canonicalDefs) {
+    let changed = false;
+    for (let i = 0; i < STANDARD_NAMES.length; i++) {
+        const raw = rawTemplates[i];
+        if (!raw?.uid) continue;
+        try {
+            const t = new BASE.SheetTemplate(raw.uid);
+            if (applyStructureMetadata(t, canonicalDefs[i])) {
+                t.save();
+                changed = true;
+            }
+        } catch (error) {
+            console.warn(`[Memo] 同步全局模板 ${STANDARD_NAMES[i]} 规则失败`, error);
+        }
+    }
+    return changed;
 }
 function syncGlobalTemplates() {
     const root = USER.getSettings();
@@ -83,20 +126,33 @@ function syncGlobalTemplates() {
     const names = rawTemplates.map(templateName);
     const canonicalDefs = canonicalStructures();
     const canonicalValid = STANDARD_NAMES.every((name, i) => names[i] === name && JSON.stringify(templateColumns(rawTemplates[i])) === JSON.stringify(canonicalDefs[i]?.columns || []));
-    if (canonicalValid && !names.includes(LEGACY_PERSON_NAME)) return false;
+
+    if (canonicalValid && !names.includes(LEGACY_PERSON_NAME)) {
+        let changed = syncExistingGlobalTemplates(rawTemplates, canonicalDefs);
+        const standardUids = rawTemplates.slice(0, STANDARD_NAMES.length).map(raw => raw?.uid).filter(Boolean);
+        const customUids = rawTemplates.slice(STANDARD_NAMES.length).filter(raw => raw?.uid).map(raw => raw.uid);
+        const selected = [...standardUids, ...customUids.filter(uid => root.table_selected_sheets?.includes(uid))];
+        if (JSON.stringify(root.table_selected_sheets || []) !== JSON.stringify(selected)) {
+            root.table_selected_sheets = selected;
+            changed = true;
+        }
+        if (changed) USER.saveSettings?.();
+        return changed;
+    }
+
     const customRaw = rawTemplates.filter((raw, i) => !STANDARD_OR_LEGACY_NAMES.has(names[i]));
     root.table_database_templates = [];
     root.table_selected_sheets = [];
     canonicalDefs.forEach(structure => {
         const t = createGlobalTemplate(structure);
-        if (t.enable !== false) root.table_selected_sheets.push(t.uid);
+        root.table_selected_sheets.push(t.uid);
     });
     for (const raw of customRaw) {
         root.table_database_templates.push(raw);
         try { const t = raw?.uid ? new BASE.SheetTemplate(raw.uid) : null; if (t?.enable !== false && raw?.uid) root.table_selected_sheets.push(raw.uid); } catch (_) {}
     }
     USER.saveSettings?.();
-    console.log('[Memo] 全局模板已同步为七表结构，自定义附加模板已保留');
+    console.log('[Memo] 全局模板已同步为七表结构与最新标准规则，自定义附加模板已保留');
     return true;
 }
 
@@ -115,8 +171,8 @@ function mapRow(headers, row) {
 function splitLegacyAgeAnchor(raw) {
     const value = norm(raw);
     if (!value) return { age:'', confirmed:'' };
-    const ageOnly = /^(?:约|大约|年约)?\s*\d+(?:\.\d+)?\s*(?:岁|年)$/;
-    const timeLike = /(?:\d{2,4}[-/.年]\d{1,2}(?:[-/.月]\d{1,2})?|\d{1,2}:\d{2}|苍玄历|公元|纪元|历\s*\d+)/;
+    const ageOnly = /^(?:约|大约|年约)?\s*\d+(?:\.\d+)?\s*岁$/;
+    const timeLike = /(?:\d{3,6}年(?:\d{1,2}月(?:\d{1,2}日)?)?|\d{2,6}[-/.]\d{1,2}(?:[-/.]\d{1,2})?|\d{1,2}:\d{2}|苍玄历|公元|纪元|历\s*\d+)/;
     if (ageOnly.test(value)) return { age:value, confirmed:'' };
     if (timeLike.test(value) && !/\d+\s*岁/.test(value)) return { age:'', confirmed:value };
     const ageMatch = value.match(/(?:^|[｜|,，;；\s])((?:约|大约)?\s*\d+(?:\.\d+)?\s*岁)(?=$|[｜|,，;；\s])/);
@@ -169,22 +225,20 @@ function mergeProjectedRows(sheet, columns, projectedRows, piece) {
 function createSheetFromStructure(structure, rows=[], piece=null) {
     const newSheet = BASE.createChatSheet(structure.columns.length+1, Math.max(1,rows.length+1));
     newSheet.name=structure.tableName; newSheet.domain=SheetBase.SheetDomain.chat; newSheet.type=SheetBase.SheetType.dynamic;
-    newSheet.enable=structure.enable!==false; newSheet.required=structure.Required===true; newSheet.tochat=structure.tochat??structure.toChat??true; newSheet.sendToContext=true; newSheet.triggerSend=false; newSheet.triggerSendDeep=1;
+    applyStructureMetadata(newSheet, structure);
     newSheet.rebuildHashSheetByValueSheet([['',...structure.columns],...rows.map(row=>['',...row])]);
-    if (newSheet.data) {
-        newSheet.data.note=structure.note||''; newSheet.data.initNode=structure.initNode||''; newSheet.data.insertNode=structure.insertNode||''; newSheet.data.updateNode=structure.updateNode||''; newSheet.data.deleteNode=structure.deleteNode||'';
-        newSheet.data.description=[structure.note,structure.initNode,structure.insertNode,structure.updateNode,structure.deleteNode].filter(Boolean).join('\n');
-    }
+    if (newSheet.data) syncRuleData(newSheet.data, structure);
     if(piece)newSheet.save(piece,true); return newSheet;
 }
 function ensureCanonicalSheet(existingSheets,name,rows,piece){ const found=existingSheets.find(sheet=>sheet?.name===name); if(found)return found; const structure=USER.tableBaseSetting.tableStructure.find(item=>item.tableName===name); return structure?createSheetFromStructure(structure,rows,piece):null; }
 
-function normalizeStandardContextFlags(sheets, piece) {
+function normalizeStandardSheets(sheets, piece) {
     let changed = false;
-    for (const sheet of sheets) {
-        if (!sheet || !STANDARD_NAMES.includes(sheet.name)) continue;
-        if (sheet.sendToContext !== true) {
-            sheet.sendToContext = true;
+    const structures = canonicalStructures();
+    for (let i = 0; i < STANDARD_NAMES.length; i++) {
+        const sheet = sheets.find(item => item?.name === STANDARD_NAMES[i]);
+        if (!sheet) continue;
+        if (applyStructureMetadata(sheet, structures[i])) {
             sheet.save(piece, true);
             changed = true;
         }
@@ -200,14 +254,14 @@ function migrateCurrentChatSheets() {
     const projectedMain=legacy?projectLegacyPerson(legacy,MAIN_COLUMNS):[];
     const projectedDev=legacy?projectLegacyPerson(legacy,DEV_COLUMNS):[];
     const projectedOldDev=oldDev?projectExistingDevelopment(oldDev):[];
-    let changed=normalizeStandardContextFlags(sheets,piece);
+    let changed=normalizeStandardSheets(sheets,piece);
     for(const name of STANDARD_NAMES){
         sheets=BASE.getChatSheets(); if(sheets.some(sheet=>sheet?.name===name))continue;
         const seedRows=name==='人物主表'?projectedMain:name==='人物发展表'?projectedDev:[];
         const created=ensureCanonicalSheet(sheets,name,seedRows,piece); changed=!!created||changed;
     }
     const current=BASE.getChatSheets();
-    changed=normalizeStandardContextFlags(current,piece)||changed;
+    changed=normalizeStandardSheets(current,piece)||changed;
     if(legacy){ changed=mergeProjectedRows(current.find(s=>s?.name==='人物主表'),MAIN_COLUMNS,projectedMain,piece)||changed; changed=mergeProjectedRows(current.find(s=>s?.name==='人物发展表'),DEV_COLUMNS,projectedDev,piece)||changed; }
     if(projectedOldDev.length){
         const dev=current.find(s=>s?.name==='人物发展表');
@@ -216,9 +270,9 @@ function migrateCurrentChatSheets() {
     const refreshed=BASE.getChatSheets(); const byName=new Map(refreshed.map(sheet=>[sheet.name,sheet]));
     const canonical=STANDARD_NAMES.map(name=>byName.get(name)).filter(Boolean); const canonicalSet=new Set(STANDARD_NAMES);
     const custom=refreshed.filter(sheet=>sheet&&!canonicalSet.has(sheet.name)&&sheet.name!==LEGACY_PERSON_NAME); const ordered=[...canonical,...custom];
-    const currentEnabledNames=refreshed.filter(s=>s?.enable&&s?.name!==LEGACY_PERSON_NAME).map(s=>s.name); const targetEnabledNames=ordered.filter(s=>s?.enable).map(s=>s.name);
-    const needsReorder=currentEnabledNames.length!==targetEnabledNames.length||targetEnabledNames.some((name,i)=>currentEnabledNames[i]!==name)||!!legacy;
-    if(changed||needsReorder){ BASE.reSaveAllChatSheets(ordered); if(legacy?.uid&&piece.hash_sheets)delete piece.hash_sheets[legacy.uid]; USER.saveChat(); BASE.refreshContextView?.(); BASE.refreshTempView?.(true); console.log('[Memo] 世界状态表已统一为七表；标准七表固定发送到上下文；人物发展表年龄/最后确认时间已分列'); return true; }
+    const currentNames=refreshed.filter(s=>s?.name!==LEGACY_PERSON_NAME).map(s=>s.name); const targetNames=ordered.map(s=>s?.name);
+    const needsReorder=currentNames.length!==targetNames.length||targetNames.some((name,i)=>currentNames[i]!==name)||!!legacy;
+    if(changed||needsReorder){ BASE.reSaveAllChatSheets(ordered); if(legacy?.uid&&piece.hash_sheets)delete piece.hash_sheets[legacy.uid]; USER.saveChat(); BASE.refreshContextView?.(); BASE.refreshTempView?.(true); console.log('[Memo] 世界状态表已统一为七表：固定启用/索引/上下文发送/标准规则元数据；人物发展年龄与确认时间分列'); return true; }
     return false;
 }
 function ensureSevenTableWorld(){ const settingsChanged=normalizeSettingsStructure(); const templatesChanged=syncGlobalTemplates(); const dataChanged=migrateCurrentChatSheets(); if(settingsChanged)USER.saveSettings?.(); return settingsChanged||templatesChanged||dataChanged; }
