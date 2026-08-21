@@ -92,7 +92,7 @@ let structuredSource = await fs.readFile(new URL('../scripts/runtime/singleApiSt
 structuredSource = structuredSource
     .replace("import { APP, BASE, EDITOR, USER } from '../../core/manager.js';", 'const { APP, BASE, EDITOR, USER } = globalThis.__structuredMocks;')
     .replace("import { getTableEditTag } from '../../index.js';", 'const { getTableEditTag } = globalThis.__structuredMocks;')
-    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo88';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
+    .replace("import { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } from './safeTableExecutor.js?v=memo89';", 'const { executeMemoTableEdit, restoreMemoSnapshot, saveMemoSnapshot } = globalThis.__structuredMocks;');
 const handlers = new Map();
 const baselineSheet = new FakeSheet('当前状态表');
 const originalBaselineRows = structuredClone(baselineSheet.rows);
@@ -137,9 +137,10 @@ handlers.get('start')('normal', {}, false);
 const customRequest = { chat_completion_source: 'custom', custom_url: 'https://proxy.example/v1', messages: [{ role: 'user', content: 'original user message' }] };
 await handlers.get('settings')(customRequest);
 if (customRequest.json_schema) throw new Error('自定义OpenAI端点仍被注入可能不兼容的JSON schema');
-if (customRequest.messages.length !== 2 || !customRequest.messages[1]?.content?.includes('<tableEdit><!-- ... --></tableEdit>')) throw new Error('自定义OpenAI端点未追加tagged末尾协议');
+if (!customRequest.custom_include_body?.includes('response_format:\n  type: json_object')) throw new Error('自定义OpenAI端点未注入json_object请求参数');
+if (customRequest.messages.length !== 2 || !customRequest.messages[1]?.content?.includes('最终content必须只输出一个合法JSON对象')) throw new Error('自定义OpenAI端点未追加JSON对象末尾协议');
 if (!customRequest.messages[1]?.content?.includes('此表格当前为空') || !customRequest.messages[1]?.content?.includes('首次记录只能insertRow')) throw new Error('自定义OpenAI端点缺少空表insert硬约束');
-structuredContext.chat.push({ is_user: false, mes: 'visible\n\n<tableEdit><!-- updateRow(0,0,{0:"new"}) --></tableEdit>', swipe_id: 0, swipes: [''] });
+structuredContext.chat.push({ is_user: false, mes: JSON.stringify({ table_edit: 'updateRow(0,0,{0:"new"})', reply: 'visible' }), swipe_id: 0, swipes: [''] });
 await handlers.get('rendered')(1);
 if (executeCount !== 0) throw new Error('基线恢复失败后仍调用严格执行器');
 if (JSON.stringify(baselineSheet.rows) !== JSON.stringify(originalBaselineRows)) throw new Error('基线恢复中途失败后未回滚Live Sheet');
@@ -154,4 +155,4 @@ if (!independentText.includes('!sessionChat.includes(initialPiece)')) throw new 
 const detachedGate = independentText.indexOf("return'detached'");
 const independentExecute = independentText.indexOf('const result=executeMemoTableEdit');
 if (detachedGate < 0 || independentExecute < 0 || detachedGate > independentExecute) throw new Error('独立记录缺少执行前聊天会话身份门控');
-console.log('baseline-gate audit PASS: restore-failure-execute-count=0, partial-restore-rollback=1, independent-gates=2, native-schema=1, custom-tagged=1');
+console.log('baseline-gate audit PASS: restore-failure-execute-count=0, partial-restore-rollback=1, independent-gates=2, native-schema=1, custom-json-object=1');
