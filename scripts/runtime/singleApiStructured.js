@@ -1,4 +1,4 @@
-import { APP, EDITOR, USER } from '../../core/manager.js';
+import { APP, BASE, EDITOR, USER } from '../../core/manager.js';
 import { getTableEditTag } from '../../index.js';
 import { executeMemoTableEdit } from './safeTableExecutor.js?v=memo77';
 
@@ -183,6 +183,30 @@ function markCurrentMessageTableEditsHandled(chat) {
     }
 }
 
+function saveCompleteSnapshot(piece) {
+    if (!piece) return;
+    for (const sheet of BASE.getChatSheets?.() ?? []) sheet?.save?.(piece, true);
+}
+
+function restoreBaselineForFullReply(chatId, chat) {
+    try {
+        const numericId = Number(chatId);
+        const previous = Number.isInteger(numericId) && numericId > 0
+            ? BASE.getLastSheetsPiece(numericId - 1, 1000, false)?.piece
+            : BASE.getLastSheetsPiece(1)?.piece;
+        if (previous?.hash_sheets) {
+            BASE.hashSheetsToSheets(previous.hash_sheets);
+            return true;
+        }
+        const empty = BASE.initHashSheet?.();
+        if (empty?.hash_sheets) BASE.hashSheetsToSheets(empty.hash_sheets);
+        return true;
+    } catch (error) {
+        console.warn('[Memo][structured] 恢复本轮回复基线失败，将保持当前Sheet状态', error, chat);
+        return false;
+    }
+}
+
 async function unpackStructuredReply(chatId) {
     if (!singleApiActive()) return;
     const pending = pendingStructuredRequest;
@@ -201,10 +225,11 @@ async function unpackStructuredReply(chatId) {
     const currentMes = String(chat.mes ?? '');
     let basePrefix = '';
     let structuredRaw = currentMes;
-    if (isAppendGeneration(pending.generationType)
+    const appendMode = isAppendGeneration(pending.generationType)
         && pending.baseChat === chat
         && pending.baseMes
-        && currentMes.startsWith(pending.baseMes)) {
+        && currentMes.startsWith(pending.baseMes);
+    if (appendMode) {
         basePrefix = pending.baseMes;
         structuredRaw = currentMes.slice(pending.baseMes.length).trim();
     }
@@ -232,9 +257,15 @@ async function unpackStructuredReply(chatId) {
     syncCurrentSwipe(chat);
     handledMessages.set(chat, chat.mes);
 
+    // 普通新回复、Swipe、Regenerate都必须以“当前消息之前”的快照为基线；
+    // Continue则在当前消息已有快照上增量执行。
+    if (!appendMode) restoreBaselineForFullReply(chatId, chat);
+
     const execution = executeMemoTableEdit(tableEdit, chat);
     markCurrentMessageTableEditsHandled(chat);
     if (!execution.ok) {
+        // 即使操作无效，也把已经恢复的正确基线写入当前Swipe，禁止沿用旧Swipe的hash_sheets。
+        saveCompleteSnapshot(chat);
         console.error('[Memo][structured] 本轮table_edit校验/执行失败，已阻止旧宽松执行器兜底：', execution.error, tableEdit);
         EDITOR.warning(`一次API记录失败：${execution.error}。正文已保留，本轮未执行错误表格操作。`);
     }
@@ -246,7 +277,7 @@ async function unpackStructuredReply(chatId) {
         console.warn('[Memo][structured] 重绘正常正文失败，但不影响已完成的严格表格执行', error);
     }
 
-    console.log(`[Memo][structured] 单次响应已拆包：${basePrefix ? '续写追加' : '完整回复'}｜table_edit=${tableEdit === 'NO_CHANGE' ? 'NO_CHANGE' : execution.ok ? `${execution.count}项` : '失败'}｜reply=${reply.length}字`);
+    console.log(`[Memo][structured] 单次响应已拆包：${appendMode ? '续写追加' : '完整回复'}｜table_edit=${tableEdit === 'NO_CHANGE' ? 'NO_CHANGE' : execution.ok ? `${execution.count}项` : '失败'}｜reply=${reply.length}字`);
 }
 
 const startedEvent = APP.event_types.GENERATION_STARTED;
@@ -268,4 +299,4 @@ const renderedEvent = APP.event_types.CHARACTER_MESSAGE_RENDERED;
 APP.eventSource.on(renderedEvent, unpackStructuredReply);
 if (typeof APP.eventSource.makeFirst === 'function') APP.eventSource.makeFirst(renderedEvent, unpackStructuredReply);
 
-console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 请求绑定 + Continue增量 + 单轮临时非流式');
+console.log('[Memo] 一次API结构化双通道已加载：严格执行器 + 正确分支基线 + Continue增量 + 单轮临时非流式');
