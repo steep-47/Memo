@@ -13,6 +13,23 @@ const WORLD_MEMORY_HEADERS = {
     '历史事件表': ['时间','地点','涉及人物','事件','结果'],
 };
 
+// 仅处理明确等价的旧称/常见误命名；不做模糊猜测。
+const HEADER_ALIASES = {
+    '人物表': {
+        '别名': '别名/称呼',
+        '称呼': '别名/称呼',
+        '所属势力': '身份/所属',
+        '当前所在地点': '当前地点',
+        '所在地点': '当前地点',
+        '所在地': '当前地点',
+        '最后确认时间': '年龄/最后确认时间',
+        '年龄/确认时间': '年龄/最后确认时间',
+        '能力': '主要能力',
+        '当前目标': '主要目标/重要事项',
+        '主要目标': '主要目标/重要事项',
+    },
+};
+
 const KEY_HEADERS = {
     '角色状态表': ['姓名'],
     '背包表': ['物品名','类型','状态/品质'],
@@ -25,6 +42,15 @@ const guardedSheets = new WeakSet();
 
 function normalize(value) {
     return String(value ?? '').trim();
+}
+
+function canonicalHeader(sheetName, header) {
+    const value = normalize(header);
+    return HEADER_ALIASES[sheetName]?.[value] || value;
+}
+
+function canonicalizeHeaders(sheetName, headers) {
+    return (headers || []).map(header => canonicalHeader(sheetName, header));
 }
 
 function getStructureForSheet(sheet, enabledIndex = -1) {
@@ -45,40 +71,44 @@ function getStandardHeaders(sheet, enabledIndex = -1) {
         : [];
 }
 
-function splitValueSheet(valueSheet) {
+function splitValueSheet(valueSheet, sheetName = '') {
     if (!Array.isArray(valueSheet) || !Array.isArray(valueSheet[0])) {
         return { headers: [], rows: [], hasIndexColumn: true };
     }
     const first = valueSheet[0];
     const hasIndexColumn = first.length > 0 && normalize(first[0]) === '';
-    const headers = (hasIndexColumn ? first.slice(1) : first).map(normalize);
+    const rawHeaders = (hasIndexColumn ? first.slice(1) : first).map(normalize);
+    const headers = canonicalizeHeaders(sheetName, rawHeaders);
     const rows = valueSheet.slice(1).map(row => {
         const source = Array.isArray(row) ? row : [];
         return hasIndexColumn ? source.slice(1) : source.slice();
     });
-    return { headers, rows, hasIndexColumn };
+    return { headers, rawHeaders, rows, hasIndexColumn };
 }
 
 function currentSheetSnapshot(sheet) {
-    const headers = (sheet.getHeader?.() || []).map(normalize);
+    const rawHeaders = (sheet.getHeader?.() || []).map(normalize);
+    const headers = canonicalizeHeaders(sheet.name, rawHeaders);
     const valueSheet = sheet.getContent?.(true);
-    if (!Array.isArray(valueSheet) || valueSheet.length < 1) return { headers, rows: [] };
-    const parsed = splitValueSheet(valueSheet);
-    // getContent(true)在不同旧版本里可能带或不带内部索引列；优先信任getHeader的真实表头。
-    if (headers.length && parsed.headers.length !== headers.length) {
+    if (!Array.isArray(valueSheet) || valueSheet.length < 1) return { headers, rawHeaders, rows: [] };
+    const parsed = splitValueSheet(valueSheet, sheet.name);
+    if (rawHeaders.length && parsed.headers.length !== rawHeaders.length) {
         const rows = valueSheet.slice(1).map(row => {
             const source = Array.isArray(row) ? row : [];
-            return source.length === headers.length + 1 ? source.slice(1) : source.slice(0, headers.length);
+            return source.length === rawHeaders.length + 1 ? source.slice(1) : source.slice(0, rawHeaders.length);
         });
-        return { headers, rows };
+        return { headers, rawHeaders, rows };
     }
-    return { headers: headers.length ? headers : parsed.headers, rows: parsed.rows };
+    return { headers: headers.length ? headers : parsed.headers, rawHeaders: rawHeaders.length ? rawHeaders : parsed.rawHeaders, rows: parsed.rows };
 }
 
 function rowMap(headers, row) {
     const map = new Map();
     headers.forEach((header, index) => {
-        if (header) map.set(header, row?.[index] ?? '');
+        if (!header) return;
+        // 遇到重复别名映射时，优先保留第一个非空值，避免后续空别名覆盖真实数据。
+        const value = row?.[index] ?? '';
+        if (!map.has(header) || normalize(map.get(header)) === '') map.set(header, value);
     });
     return map;
 }
@@ -96,33 +126,35 @@ function findOldRow(sheetName, oldSnapshot, incomingHeaders, incomingRow) {
         const incoming = rowMap(incomingHeaders, incomingRow);
         const usableKeys = keys.filter(key => incomingHeaders.includes(key) && normalize(incoming.get(key)) !== '');
         if (usableKeys.length) {
-            const found = oldRows.find(oldRow => {
+            const candidates = oldRows.filter(oldRow => {
                 const old = rowMap(oldSnapshot.headers, oldRow);
                 return usableKeys.every(key => normalize(old.get(key)) === normalize(incoming.get(key)));
             });
-            if (found) return found;
+            // 只有唯一命中才允许拿旧行回填。多位同名NPC、同名物品等一律不猜。
+            if (candidates.length === 1) return candidates[0];
         }
     }
 
-    // 实体/库存/任务/历史无法按主键匹配时不按行号猜，避免把旧对象字段误补到新对象。
     return null;
 }
 
 /**
  * 将一次“整表重建”的输入限制在当前标准结构内。
  * - 标准列必须存在且按标准顺序排列；
- * - 整理前已经存在的自定义附加列保留在末尾；
+ * - 整理前已经存在的真正自定义附加列保留在末尾；
+ * - 已知旧称/误命名会归一到标准列，不会形成重复列；
  * - AI凭空发明的新列不进入正式结构；
- * - AI若漏返回某个旧列，能按同一实体匹配时保留旧值，尤其保护NPC长期锚点。
+ * - AI若漏返回某个旧列，仅在能唯一匹配同一实体时保留旧值。
  */
 function conformValueSheetToSchema(sheet, valueSheet, enabledIndex = -1) {
     const standardHeaders = getStandardHeaders(sheet, enabledIndex);
     if (!standardHeaders.length) return valueSheet;
 
     const oldSnapshot = currentSheetSnapshot(sheet);
-    const extraHeaders = oldSnapshot.headers.filter(header => header && !standardHeaders.includes(header));
+    const extraHeaders = (oldSnapshot.rawHeaders || oldSnapshot.headers)
+        .filter(header => header && !standardHeaders.includes(canonicalHeader(sheet.name, header)));
     const targetHeaders = [...standardHeaders, ...extraHeaders];
-    const incoming = splitValueSheet(valueSheet);
+    const incoming = splitValueSheet(valueSheet, sheet.name);
     if (!incoming.headers.length) return valueSheet;
 
     const projectedRows = incoming.rows.map(row => {
@@ -130,9 +162,9 @@ function conformValueSheetToSchema(sheet, valueSheet, enabledIndex = -1) {
         const oldRow = findOldRow(sheet.name, oldSnapshot, incoming.headers, row);
         const oldValues = oldRow ? rowMap(oldSnapshot.headers, oldRow) : new Map();
         return targetHeaders.map(header => {
-            // 只有“整列没有返回”才用旧锚点回填；若AI明确返回了该列且值为空，则尊重其清空结果。
-            if (incoming.headers.includes(header)) return incomingValues.get(header) ?? '';
-            return oldValues.get(header) ?? '';
+            const canonical = canonicalHeader(sheet.name, header);
+            if (incoming.headers.includes(canonical)) return incomingValues.get(canonical) ?? '';
+            return oldValues.get(canonical) ?? '';
         });
     });
 
@@ -142,11 +174,6 @@ function conformValueSheetToSchema(sheet, valueSheet, enabledIndex = -1) {
     ];
 }
 
-/**
- * 给当前世界状态Sheet安装结构保护。任何通过rebuildHashSheetByValueSheet进行的整表重建
- * 都先经过标准列对齐，因此“表格整理”等功能不能再把标准表头删掉或改名。
- * 只保护六张已知世界状态表；其他自定义表完全不受影响。
- */
 function installWorldMemorySchemaGuard(sheet, enabledIndex = -1) {
     if (!sheet || !WORLD_MEMORY_HEADERS[sheet.name] || guardedSheets.has(sheet)) return false;
     const original = sheet.rebuildHashSheetByValueSheet;
@@ -166,9 +193,9 @@ function installCurrentWorldMemoryGuards() {
 }
 
 /**
- * 用标准列修复缺失表头，并安装整表重建保护。
+ * 用标准列修复缺失、别名和顺序错误，并安装整表重建保护。
  * notify=true用于“表格整理”按钮场景；普通请求前校验使用notify=false静默处理。
- * 只补缺失列；已有额外自定义列保留，现有数据按列名重新对齐。不调用API。
+ * 真正的自定义附加列保留在标准列之后。不调用API。
  */
 function repairMissingColumnsBeforeCleanup({ notify = true } = {}) {
     const { piece } = USER.getChatPiece() || {};
@@ -182,21 +209,20 @@ function repairMissingColumnsBeforeCleanup({ notify = true } = {}) {
         const standardHeaders = getStandardHeaders(sheet, enabledIndex);
         if (standardHeaders.length === 0) return;
 
-        const currentHeaders = sheet.getHeader().map(normalize);
-        const missingHeaders = standardHeaders.filter(header => !currentHeaders.includes(header));
-        if (missingHeaders.length > 0) {
-            const extraHeaders = currentHeaders.filter(header => header && !standardHeaders.includes(header));
-            const targetHeaders = [...standardHeaders, ...extraHeaders];
+        const rawHeaders = sheet.getHeader().map(normalize);
+        const canonicalHeaders = canonicalizeHeaders(sheet.name, rawHeaders);
+        const extraHeaders = rawHeaders.filter(header => header && !standardHeaders.includes(canonicalHeader(sheet.name, header)));
+        const targetHeaders = [...standardHeaders, ...extraHeaders];
+        const missingHeaders = standardHeaders.filter(header => !canonicalHeaders.includes(header));
+        const needsRepair = rawHeaders.length !== targetHeaders.length || rawHeaders.some((header, index) => header !== targetHeaders[index]);
 
+        if (needsRepair) {
             const rows = [];
             for (let rowIndex = 1; rowIndex < sheet.getRowCount(); rowIndex++) {
                 const cells = sheet.getCellsByRowIndex(rowIndex) || [];
-                const oldValuesByHeader = new Map();
-                currentHeaders.forEach((header, colIndex) => {
-                    if (!header) return;
-                    oldValuesByHeader.set(header, cells[colIndex + 1]?.data?.value ?? '');
-                });
-                rows.push(targetHeaders.map(header => oldValuesByHeader.get(header) ?? ''));
+                const sourceValues = cells.slice(1).map(cell => cell?.data?.value ?? '');
+                const oldValuesByHeader = rowMap(canonicalHeaders, sourceValues);
+                rows.push(targetHeaders.map(header => oldValuesByHeader.get(canonicalHeader(sheet.name, header)) ?? ''));
             }
 
             const valueSheet = [
@@ -204,13 +230,13 @@ function repairMissingColumnsBeforeCleanup({ notify = true } = {}) {
                 ...rows.map(row => ['', ...row]),
             ];
 
-            // 此处先完成一次确定性的缺列修复，再安装guard，避免guard套guard。
             sheet.rebuildHashSheetByValueSheet(valueSheet);
             sheet.save(piece, true);
             repaired.push({
                 tableIndex: structure?.tableIndex ?? enabledIndex,
                 tableName: sheet.name,
                 missingHeaders,
+                reordered: missingHeaders.length === 0,
             });
         }
 
@@ -221,12 +247,13 @@ function repairMissingColumnsBeforeCleanup({ notify = true } = {}) {
         BASE.refreshContextView();
         updateSystemMessageTableStatus();
         USER.saveChat();
-        console.log('[Memo] 已修复缺失标准表头:', repaired);
+        console.log('[Memo] 已统一标准表头:', repaired);
         if (notify) {
-            const summary = repaired
-                .map(item => `${item.tableName}: ${item.missingHeaders.join('、')}`)
-                .join('；');
-            EDITOR.success(`已修复缺失表头：${summary}`);
+            const summary = repaired.map(item => {
+                if (item.missingHeaders.length) return `${item.tableName}: 补齐/归一 ${item.missingHeaders.join('、')}`;
+                return `${item.tableName}: 已恢复标准顺序`;
+            }).join('；');
+            EDITOR.success(`已统一表头：${summary}`);
         }
     }
 
